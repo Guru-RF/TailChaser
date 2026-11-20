@@ -152,6 +152,7 @@ static const char PAGE[] =
 "$('link').innerHTML=l.connected?pill('ok','TG '+l.tg):l.waiting_for_cert?pill('warn','waiting for certificate'):pill('bad','not connected');"
 "$('links').textContent=l.connected?(l.callsign+' on '+l.host+(l.talker?' · '+l.talker+' is talking':'')+(l.tg!=l.home_tg?' · home TG '+l.home_tg:'')):"
 "l.waiting_for_cert?'the reflector sysop has to sign the request of '+l.callsign:(l.host?'retrying '+l.host:'looking for the reflector');"
+"$('mon').style.display=d.monitor?'':'none';$('mtxw').style.display=h.tx?'':'none';"
 "meter(d,g,x);if(h.rxlink){$('rx').innerHTML=!rv.connected?pill('bad','receiver not connected'):rv.squelch?pill('ok','station on the input'):pill('idle','quiet');"
 "$('rxs').textContent=rv.peer+(rv.connected?' · '+rv.codec+' · RemoteTrx '+rv.proto:'')}else{"
 "$('rx').innerHTML=x.keyed&&!h.repeater?pill('idle','deaf — transmitting'):g.open?pill('ok','voice — to the '+dest):g.cos?pill('warn','carrier — listening for a voice'):pill('idle','quiet');"
