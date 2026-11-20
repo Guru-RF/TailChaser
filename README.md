@@ -64,11 +64,10 @@ talkgroup and on a split site. What is different is the scope and the defaults.
 | Setting up the audio | an oscilloscope, a deviation meter, or patience | every source is levelled by itself; the deviation is measured in Hz on any web SDR and the tool says what to change (below) |
 | Watching and running it | log file, an editor over ssh | a status page in every program, an admin portal (configuration, restart, block receiver/transmitter), an API with keys |
 | Moving over | — | `bootstrap.sh … replace-svxlink` reads SvxLink's files, takes key and certificate along, and `rollback` goes back |
-| Size | C++, TCL, sound packs | about 12 000 lines of C, no interpreter in the daemon |
+| Size | C++, TCL, sound packs | about 14 000 lines of C, no interpreter in the daemon |
 
 What SvxLink has and TailChaser does not: modules, EchoLink, voice
-announcements from sound packs, APRS, scripting, voting between receivers
-(planned), DTMF command trees beyond talkgroup selection.
+announcements from sound packs, APRS, scripting, DTMF command trees beyond talkgroup selection.
 
 ## Calibrating a repeater's audio without test equipment
 
@@ -84,7 +83,7 @@ brought to the same level before it reaches the modulator:
 | What is transmitted | Its level |
 |---|---|
 | a station on the input | normalised to `[audio] normalize_target_db` (per over) |
-| audio from the talkgroup | normalised to the same target (`[tx] normalize`) |
+| audio from the talkgroup | normalised to the same target (`[tx] normalize`), looking 100 ms ahead so a programme that turns loud does not spike |
 | spoken announcements | `[announce] level_db` |
 | Morse, roger beep, test tones | their own fixed `level_db` |
 
@@ -248,13 +247,9 @@ audio and its squelch / PTT lines are used.
 
 **Not there yet**
 
-- **Voting.** One receiver per repeater for now. `tailchaser-receiver` already
-  reports the signal strength with every over (`[siglev]`), and the plan is for
-  `-duplex` and `-transmitter` to take several receivers and pick the one with
-  the highest RSSI.
-- **A carrier squelch of its own.** A receiver without squelch line needs a
-  CTCSS tone on its input (`[ctcss]`, below); a noise squelch in software, for
-  an input without tone, is not there.
+- **A carrier squelch for a radio without a squelch line.** Such a receiver
+  needs a CTCSS tone on its input (`[ctcss]`, below). (A squelch made from
+  the receiver's hiss exists, but only in `tailchaser-sdrreceiver`.)
 - Voice announcements, SvxLink modules (parrot, EchoLink, ...): none. The
   identification is Morse.
 
