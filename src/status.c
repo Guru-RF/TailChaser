@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS */
 #include "status.h"
 #include "admin.h"
+#include "monitor.h"
 #include "log.h"
 #include "util.h"
 
@@ -27,6 +28,7 @@ struct status {
     bool              running;
     atomic_bool       stop;
     struct admin     *admin;
+    struct monitor   *monitor;
     char              remote_host[256];
     int               remote_port;
     char             *remote_json;      /* the last answer, or NULL */
@@ -105,7 +107,9 @@ static const char PAGE[] =
 "<th>Time</th><th class=r>Length</th><th>Station</th><th class=r>Talkgroup</th><th>On the air</th>"
 "</tr></thead><tbody id=nrows></tbody></table></div></div>"
 "<footer><span id=ver>TailChaser</span> · <a href='https://tailchaser.app'>tailchaser.app</a>"
-" · free software, GPL-3.0-or-later · <a href='/admin'>admin</a></footer>"
+" · free software, GPL-3.0-or-later · <a href='/admin'>admin</a>"
+"<span id=mon style='display:none'> · listen: <a href='#' id=mrx onclick=\"return listen('rx')\">input</a>"
+"<span id=mtxw> · <a href='#' id=mtx onclick=\"return listen('tx')\">output</a></span></span></footer>"
 "<script>"
 "const $=i=>document.getElementById(i),E=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));"
 "function pill(c,t){return '<span class=\"pill '+c+'\">'+E(t)+'</span>'}"
@@ -174,6 +178,16 @@ static const char PAGE[] =
 "$('nrows').innerHTML=d.net_history.map(o=>'<tr><td>'+hm(o.t)+'</td><td class=r>'+(o.ms/1000).toFixed(1)+' s</td><td>'+E(o.call||'?')+'</td><td class=r>'+o.tg+'</td><td>'+"
 "pill(o.outcome=='transmitted'?'ok':o.outcome=='partly'?'warn':'bad',o.outcome)+'</td></tr>').join('')"
 "||'<tr><td colspan=5 style=\"color:var(--mut)\">Nothing received yet.</td></tr>'}"
+"let ws=null,wsw='',ac=null,at=0;"
+"function monlab(){$('mrx').textContent=wsw=='rx'?'input (stop)':'input';$('mtx').textContent=wsw=='tx'?'output (stop)':'output'}"
+"function listen(w){const same=wsw==w;if(ws){ws.onclose=null;ws.close();ws=null;wsw=''}if(same){monlab();return false}"
+"ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume();at=0;wsw=w;"
+"ws=new WebSocket((location.protocol=='https:'?'wss://':'ws://')+location.host+'/monitor/'+w);ws.binaryType='arraybuffer';"
+"ws.onmessage=e=>{if(typeof e.data=='string')return;const i=new Int16Array(e.data);if(!i.length)return;"
+"const b=ac.createBuffer(1,i.length,16000),c=b.getChannelData(0);for(let k=0;k<i.length;k++)c[k]=i[k]/32768;"
+"const s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);const n=ac.currentTime;"
+"if(at<n+0.02||at>n+1.5)at=n+0.2;s.start(at);at+=b.duration};"
+"ws.onclose=()=>{ws=null;wsw='';monlab()};monlab();return false}"
 "tick();setInterval(tick,300)"
 "</script></main></body></html>";
 
@@ -217,7 +231,7 @@ static size_t build_json(status_t *s, char *out, size_t cap)
     sb_printf(&b, "{\"version\":\"%s\",\"board\":\"%s\",\"uptime_s\":%ld,\"now\":%ld,",
               js(d->version, t1, sizeof t1), js(d->board, t2, sizeof t2),
               (long)(now - d->started), (long)now);
-    sb_printf(&b, "\"block\":{\"rx\":%s,\"tx\":%s},", B(d->block_rx), B(d->block_tx));
+    sb_printf(&b, "\"block\":{\"rx\":%s,\"tx\":%s},\"monitor\":%s,", B(d->block_rx), B(d->block_tx), B(d->monitor));
     sb_printf(&b, "\"role\":\"%s\",\"title\":\"%s\",\"has\":{\"rx\":%s,\"tx\":%s,\"reflector\":%s,"
                   "\"uplink\":%s,\"rxlink\":%s,\"repeater\":%s},",
               js(d->role, t1, sizeof t1), js(d->title, t2, sizeof t2), B(d->has_rx), B(d->has_tx),
@@ -470,14 +484,15 @@ static char *json_dup(void *ctx, size_t *len)
     return json;
 }
 
-static void serve(status_t *s, int fd, const char *peer)
+/* True when the socket was handed on (a listener): the caller leaves it open. */
+static bool serve(status_t *s, int fd, const char *peer)
 {
     struct timeval tv = { 2, 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
     char *req = malloc(REQ_HEAD_MAX + 1);
     if (!req)
-        return;
+        return false;
     size_t got = 0, cap = REQ_HEAD_MAX, head_len = 0;
     while (got < cap) {
         ssize_t r = recv(fd, req + got, cap - got, 0);
@@ -491,7 +506,7 @@ static void serve(status_t *s, int fd, const char *peer)
     if (!head_len) {
         if (got) respond(fd, "400 Bad Request", "text/plain", "bad request\n", 12);
         free(req);
-        return;
+        return false;
     }
     req[head_len - 2] = '\0';                   /* the head is a string of its own */
     char method[8] = "", path[128] = "";
@@ -507,11 +522,11 @@ static void serve(status_t *s, int fd, const char *peer)
     if (want > REQ_BODY_MAX) {
         respond(fd, "413 Payload Too Large", "text/plain", "too large\n", 10);
         free(req);
-        return;
+        return false;
     }
     if (want > 0) {
         char *bigger = realloc(req, head_len + want + 1);
-        if (!bigger) { free(req); return; }
+        if (!bigger) { free(req); return false; }
         req = bigger;
         if (have > want) have = want;
         while (have < want) {
@@ -522,7 +537,7 @@ static void serve(status_t *s, int fd, const char *peer)
         if (have < want) {
             respond(fd, "400 Bad Request", "text/plain", "short body\n", 11);
             free(req);
-            return;
+            return false;
         }
     }
     char *body = req + head_len;
@@ -542,8 +557,24 @@ static void serve(status_t *s, int fd, const char *peer)
             respond_h(fd, out.status, out.type, out.header, out.body, out.len);
             free(out.buf);
             free(req);
-            return;
+            return false;
         }
+    }
+    if (is_get && !strncmp(path, "/monitor/", 9)) {
+        char key[96];
+        header(req, "Sec-WebSocket-Key", key, sizeof key);
+        int which = !strcmp(path + 9, "rx") ? MONITOR_RX : !strcmp(path + 9, "tx") ? MONITOR_TX : -1;
+        if (!s->monitor || which < 0)
+            respond(fd, "404 Not Found", "text/plain", "listening in is off ([status] monitor)\n", 39);
+        else if (!key[0])
+            respond(fd, "400 Bad Request", "text/plain", "a websocket\n", 12);
+        else if (monitor_accept(s->monitor, fd, which, key)) {
+            free(req);
+            return true;
+        } else
+            respond(fd, "503 Service Unavailable", "text/plain", "too many listeners\n", 19);
+        free(req);
+        return false;
     }
     if (!is_get) {
         respond(fd, "405 Method Not Allowed", "text/plain", "read-only\n", 10);
@@ -558,9 +589,11 @@ static void serve(status_t *s, int fd, const char *peer)
         respond(fd, "404 Not Found", "text/plain", "not found\n", 10);
     }
     free(req);
+    return false;
 }
 
 void status_set_admin(status_t *s, struct admin *a) { s->admin = a; }
+void status_set_monitor(status_t *s, struct monitor *m) { s->monitor = m; }
 
 void status_set_remote(status_t *s, const char *host, int port)
 {
@@ -582,8 +615,8 @@ static void *http_main(void *arg)
             continue;
         char peer[INET_ADDRSTRLEN] = "?";
         inet_ntop(AF_INET, &from.sin_addr, peer, sizeof peer);
-        serve(s, fd, peer);
-        close(fd);
+        if (!serve(s, fd, peer))
+            close(fd);
     }
     return NULL;
 }

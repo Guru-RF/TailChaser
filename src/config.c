@@ -685,6 +685,7 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "http_port")) INT(cfg->status.http_port);
         if (!strcmp(key, "bind"))      STR(cfg->status.bind);
         if (!strcmp(key, "admin"))     BOOL(cfg->status.admin);
+        if (!strcmp(key, "monitor"))   BOOL(cfg->status.monitor);
         if (!strcmp(key, "admin_file")) STR(cfg->status.admin_file);
         if (!strcmp(key, "rssi_lo"))   { cfg->status_rssi_set = true; INT(cfg->status.rssi_lo); }
         if (!strcmp(key, "rssi_hi"))   { cfg->status_rssi_set = true; INT(cfg->status.rssi_hi); }
@@ -798,6 +799,11 @@ void config_finish(config_t *cfg, const role_t *role)
     if (role->uplink && !cfg->status_rssi_set) {
         cfg->status.rssi_lo = cfg->siglev.rssi_lo;
         cfg->status.rssi_hi = cfg->siglev.rssi_hi;
+    }
+    /* A transmit site shows what its receiver reports: a signal of 0..100. */
+    if (role->remote_rx && !cfg->status_rssi_set) {
+        cfg->status.rssi_lo = 0;
+        cfg->status.rssi_hi = 100;
     }
 }
 

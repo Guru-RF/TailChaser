@@ -251,6 +251,7 @@ typedef struct {
 typedef struct {
     int  http_port;         /* status page; 0 = off                                 */
     bool   admin;           /* /admin and /api on the same port                    */
+    bool   monitor;         /* /monitor/rx and /monitor/tx: listening in           */
     char   admin_file[256]; /* password, API keys, blocks                           */
     char bind[48];
     int  rssi_lo;           /* S-meter on the page: raw SA818 RSSI shown as S1      */

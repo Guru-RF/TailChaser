@@ -58,7 +58,7 @@ key. What a small device wants from it:
 | `tx.keyed` `tx.why` `tx.keyed_ms` | on the air, why (`talkgroup audio`, `announcement`, …), for how long |
 | `gate.cos` | the squelch is open |
 | `gate.open` | …and what is received is passed on (a voice was heard) |
-| `gate.rssi` (`gate.rssi_lo`, `gate.rssi_hi`) | signal strength, raw; `rssi_lo` = S1, `rssi_hi` = S9+40; −1 = unknown |
+| `gate.rssi` (`gate.rssi_lo`, `gate.rssi_hi`) | signal strength, raw; `rssi_lo` = S1, `rssi_hi` = S9+40; −1 = no signal. On a transmit site it is what the receiver that has the over reports (0..100), so the same field works on every program; `remote_receiver.gate.rssi` is that receiver's own raw reading |
 | `gate.level_db` | receive audio level, dBFS |
 | `ctcss.open` `ctcss.level_db` `ctcss.snr_db` | the tone squelch in software, when `ctcss.detect` |
 | `link.connected` `link.tg` `link.home_tg` `link.talker` | the talkgroup link: logged in, talkgroup now, talkgroup at rest, who is talking (`""` = nobody) |
@@ -75,6 +75,14 @@ key. What a small device wants from it:
 The status changes about three times a second; asking once or twice a second
 is plenty. The server answers one request at a time and closes the
 connection after each (`Connection: close`).
+
+## The audio: `/monitor/rx`, `/monitor/tx`
+
+With `[status] monitor = true` (the status has `"monitor": true` then), two
+websockets carry the audio of the receiver and of what is transmitted:
+binary messages of 16-bit little-endian mono PCM, 16 kHz, about 100 ms each.
+No key: it is the status page's "listen". `404` when it is off, `503` when
+four listeners are there already.
 
 ## On a microcontroller
 

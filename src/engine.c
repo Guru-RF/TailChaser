@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS */
 #include "engine.h"
+#include "monitor.h"
 #include "wav.h"
 #include <sys/stat.h>
 #include "ctcss.h"
@@ -66,6 +67,7 @@ struct engine {
         unsigned long won;
     } rxl[CFG_MAX_RECEIVERS];
     int             n_rxl;
+    struct monitor *monitor;            /* somebody may be listening in */
     int             active;
     bool            own_open;           /* the receiver in this box has an over */
     uint64_t        own_at, own_better, switched_at, tx_seen_at;
@@ -692,6 +694,7 @@ static void feed(engine_t *e)
         txshape_process(&e->shape, out, e->frame);
         if (audio_tx_push(e->audio, out, e->frame) != 0)
             break;
+        monitor_feed(e->monitor, MONITOR_TX, out, e->frame);
     }
     if (e->net_hold > 0)
         e->net_hold--;
@@ -1519,6 +1522,8 @@ void engine_remote_audio(engine_t *e, int i, const int16_t *pcm, int n)
     struct rxl *l = &e->rxl[i];
     if (e->block_rx || e->active != i + 1)
         return;
+    if (!e->role->rx)                           /* no receiver here: the one that has the over */
+        monitor_feed(e->monitor, MONITOR_RX, pcm, n);
     for (int off = 0; off < n;) {
         int take = e->frame - l->acc_n;
         if (take > n - off) take = n - off;
@@ -1749,6 +1754,7 @@ void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
                 cos = ctcss_process(&e->ctcss, pcm, e->line_on ? cos : true);
             if (e->deemph_on)
                 deemph_process(&e->deemph, pcm, f->n);
+            monitor_feed(e->monitor, MONITOR_RX, pcm, f->n);    /* what the receiver gives, squelch or not */
         }
         /* One radio (simplex): while the transmitter is keyed the receiver
          * hears nothing, and it needs a moment to settle after the carrier
@@ -1800,6 +1806,8 @@ bool engine_wants_rssi(const engine_t *e)
 {
     return e->role->rx && e->cos_open && (e->tx == TX_OFF || e->role->repeater);
 }
+
+void engine_set_monitor(engine_t *e, struct monitor *m) { e->monitor = m; }
 
 int engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset)
 {
@@ -1885,6 +1893,15 @@ void engine_push_status(engine_t *e)
     d->periodicity  = e->role->rx && e->cos_open ? f->periodicity : 0.0f;
     d->voiced       = e->role->rx && e->cos_open && f->voiced;
     d->rssi         = e->cos_open ? e->rssi : -1;
+    if (!e->role->rx) {
+        /* no receiver here: the signal of the one that has the over (or, before
+         * the vote, of the first that hears something), as it reports it */
+        int who = e->active > 0 ? e->active - 1 : -1;
+        for (int i = 0; who < 0 && i < e->n_rxl; i++)
+            if (e->rxl[i].open)
+                who = i;
+        d->rssi = who >= 0 && e->rxl[who].open ? (int)lrintf(e->rxl[who].siglev + e->rxl[who].offset) : -1;
+    }
     snprintf(d->gate_state, sizeof d->gate_state, "%s",
              e->role->rx ? gate_state_name(gate_state(&e->gate)) : e->local_over ? "open" : "idle");
     d->tx           = e->tx != TX_OFF;

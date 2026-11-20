@@ -477,6 +477,22 @@ tx: off after 13.6 s
 `-v` (or `[log] level = debug`) adds one line per event, including what the
 normaliser did with each over.
 
+## Listening in
+
+`[status] monitor = true` puts **listen: input · output** at the foot of the
+status page: the audio of the receiver (all of it, squelch open or not) and
+of what goes to the transmitter, in the browser. For setting a node up and
+for finding out why something sounds the way it does — is the hiss there, is
+the tone, what does the normaliser make of a quiet station, what does an
+announcement sound like before the radio.
+
+It is off unless it is turned on: whoever can open the status page can then
+listen (four listeners at most). The streams are websockets,
+`ws://<node>:8080/monitor/rx` and `/monitor/tx`: binary messages of 16-bit
+little-endian mono PCM at 16 kHz, so a script can record them too. A
+transmit site's input is the receiver that has the over; a receiver has an
+input only.
+
 ## More receivers: voting, and a receiver on a web SDR
 
 A repeater or a node can listen with more than one receiver. Besides its own
@@ -621,6 +637,7 @@ src/nettrx.c       RemoteTrx server (receiver)     src/netrx.c   its client (tra
 src/audio.c mixer.c sa818.c serial_worker.c gpio*.c      the hardware
 src/sdr.c sdr_kiwi.inc sdr_uber.inc   the web SDR client: OpenWebRX, KiwiSDR / Web-888, UberSDR
 src/status.c       status page, the HTTP server
+src/monitor.c      listening in: the audio over a websocket
 src/admin.c admin.html   the admin portal and the API
 config/            one example per program
 systemd/           one unit per program

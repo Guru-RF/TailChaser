@@ -23,6 +23,7 @@
 #include "mixer.h"
 #include "netrx.h"
 #include "sdr.h"
+#include "monitor.h"
 #include "nettrx.h"
 #include "reflector.h"
 #include "role.h"
@@ -468,6 +469,7 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     static rl_ctx_t  rl_ctx[CFG_MAX_RECEIVERS];
     int              n_rxl = 0;
     sdr_t           *sdr = NULL;
+    monitor_t       *monitor = NULL;
     status_t        *status = NULL;
     admin_t         *admin = NULL;
     engine_t        *eng = NULL;
@@ -566,6 +568,14 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
         if (admin)
             status_set_admin(status, admin);
     }
+    if (cfg->status.monitor && cfg->status.http_port > 0) {
+        monitor = monitor_new();
+        if (monitor) {
+            status_set_monitor(status, monitor);
+            log_warn("status: listening in is ON — whoever can open the status page hears the %s ([status] monitor)",
+                     role->tx && (role->rx || role->remote_rx) ? "input and the output" : role->tx ? "output" : "input");
+        }
+    }
     if (role->remote_rx && cfg->receiver.status_port > 0)
         status_set_remote(status, cfg->receiver.host, cfg->receiver.status_port);
     {
@@ -573,6 +583,7 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
         snprintf(d->role, sizeof d->role, "%s", role->name);
         snprintf(d->title, sizeof d->title, "%s", role->title);
         d->has_rx = role->rx;
+        d->monitor = monitor != NULL;
         d->has_tx = role->tx;
         d->has_reflector = role->reflector;
         d->has_uplink = role->uplink;
@@ -636,6 +647,7 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     eng = engine_new(cfg, role, audio, ref, uplink, gpio, status);
     if (!eng)
         goto done;
+    engine_set_monitor(eng, monitor);
     for (int k = 0; k < config_receivers(cfg, role); k++) {
         const receiver_config_t *rcv = config_receiver(cfg, k);
         netrx_cfg_t xcfg;

@@ -66,6 +66,8 @@ void engine_remote_dtmf(engine_t *e, int link, char digit, int duration_ms);
 void engine_remote_siglev(engine_t *e, int link, float siglev);
 /* ...and the link itself, for the status page. */
 /* A receiver elsewhere; returns its number (the `link` of the calls above). */
+struct monitor;
+void engine_set_monitor(engine_t *e, struct monitor *m);     /* listening in */
 int  engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset);
 
 /* A test transmission (tones), as soon as the transmitter is free. */

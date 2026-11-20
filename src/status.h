@@ -65,6 +65,7 @@ typedef struct {
     char   bandwidth[8];
     char   ctcss_rx[12], ctcss_tx[12];
     int    squelch;
+    bool   monitor;                     /* [status] monitor */
     bool   has_sdr;                     /* the receiver is a web SDR */
     char   sdr_type[16], sdr_url[256], sdr_state[160], sdr_server[96];
     bool   sdr_connected, sdr_listening;
@@ -137,6 +138,9 @@ status_t *status_new(const char *bind_addr, int port);
 /* The admin portal and the API are served by the same server. */
 struct admin;
 void status_set_admin(status_t *s, struct admin *a);
+/* Listening in: /monitor/rx and /monitor/tx are served from this. */
+struct monitor;
+void status_set_monitor(status_t *s, struct monitor *m);
 /* A transmit site: the status of its receive site (a tailchaser-receiver's
  * /status.json) is fetched and passed on as "remote_receiver", so whoever
  * asks only has to ask here. port 0 = not. */

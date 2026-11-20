@@ -50,7 +50,7 @@ SRC := src/main.c src/role.c src/config.c src/engine.c src/audio.c src/audioproc
        src/gate.c src/vad.c src/dtmf.c \
        src/reflector.c src/refmsg.c src/refcrypto.c src/tls.c src/pki.c src/srv.c \
        src/jitter.c src/opus_codec.c \
-       src/nettrx.c src/netrx.c src/sdr.c \
+       src/nettrx.c src/netrx.c src/sdr.c src/monitor.c \
        src/status.c src/admin.c src/sa818.c src/serial_worker.c src/mixer.c \
        src/detect.c src/log.c src/util.c src/wav.c
 GPIOD_MAJOR := $(firstword $(subst ., ,$(shell pkg-config --modversion libgpiod 2>/dev/null)))
@@ -128,6 +128,7 @@ check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt
 	python3 tests/announce.py ./tailchaser-duplex tools/tailchaser-announce
 	python3 tools/devcal.py --selftest
 	python3 tests/admin.py ./tailchaser-duplex
+	python3 tests/monitor.py ./tailchaser-duplex
 	python3 tests/sdr.py ./tailchaser-sdrreceiver ./opuspkt
 	python3 tests/voter.py ./tailchaser-receiver ./tailchaser-duplex ./tailchaser-simplex
 	python3 tests/e2e_receiver.py ./tailchaser-receiver

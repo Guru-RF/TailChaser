@@ -193,8 +193,24 @@ bind = 127.0.0.1
         grp = radio_rx.first("AT+DMOSETGROUP")
         check(grp is not None and "431.2000" in grp, f"SA818 of the receiver: 431.200 MHz  [{grp}]")
 
+        seen = []                                   # the transmitter's own signal reading, while it runs
+        stop = threading.Event()
+
+        def watch():
+            while not stop.is_set():
+                try:
+                    g = tx.status()["gate"]
+                    seen.append((g["cos"], g["rssi"], g["rssi_lo"], g["rssi_hi"]))
+                except Exception:               # noqa: BLE001
+                    pass
+                time.sleep(0.15)
+        threading.Thread(target=watch, daemon=True).start()
         ov = overs_at(ref, 2, 22)
+        stop.set()
         check(len(ov) == 2, f"both overs reach the talkgroup ({len(ov)} of 2)")
+        on = [r for c, r, _, _ in seen if c]
+        check(on and min(on) >= 1 and all(r == -1 for c, r, _, _ in seen if not c) and seen[0][2:] == (0, 100),
+              f"the transmitter shows the signal strength its receiver reports ({max(on) if on else '-'} of 100 during an over, none without)")
         for i, pk in enumerate(ov):
             check(near(len(pk) * 0.02, 3.0, 0.15), f"over {i + 1} is on the talkgroup whole: {len(pk) * 0.02:.2f} s of 3.00 s")
         if len(ov) < 2 or len(ov[0]) < 100:
