@@ -1,0 +1,65 @@
+# TailChaser-SDRReceiver — a receiver without a radio.
+#
+# It listens to one FM channel on a web SDR, as one of its listeners, and
+# serves what it hears the way a tailchaser-receiver does. A repeater or a
+# node connects to it ([receiver] / [receiver2] there) and votes: the receiver
+# that hears a station has the over.
+#
+# REQUIRED: [sdr] url and freq, [uplink] auth_key.
+# Check:    tailchaser-sdrreceiver -t -c /etc/tailchaser/sdrreceiver.conf
+#
+# Be a good guest: it is somebody's receiver. One connection, all day — ask
+# the owner. This program never changes what other listeners share.
+
+[sdr]
+type          = openwebrx    # openwebrx | kiwisdr | web888 | ubersdr
+url           =              # REQUIRED  https://sdr.example.org   (kiwisdr / web888: http://host:8073)
+freq          =              # REQUIRED  MHz. A repeater: its INPUT (431.200 for 438.800 - 7.6).
+                             #           A simplex node: its frequency.
+bandwidth     = narrow       # narrow (12.5 kHz channel) | wide (25 kHz) | the passband in Hz
+#profile      = 70cm         # openwebrx with several devices: part of the name of the profile that
+                             # has the frequency — the device to look on first. A profile is never
+                             # CHANGED from here: when no device is on the band, it waits.
+#password     =              # kiwisdr / web888: the owner's password that lifts the time limit.
+                             # ubersdr: its bypass password.
+#name         = TailChaser   # who we say we are, where the receiver shows its listeners
+#buffer_ms    = 300          # audio kept in store against the jitter of the internet
+#tls_verify   = true
+
+# The squelch. A web SDR gives audio and nothing else, so it is made from the
+# audio: without a carrier an FM receiver hisses up to the top of its audio, a
+# carrier quiets that. "noise" on the status page is the hiss right now —
+# look at it with and without a signal, and put the two levels below between.
+# (An OpenWebRX receiver: about -30 without a signal, -60 and lower with one.)
+#squelch_open_db  = -42      # hiss below this (dBFS): a carrier — open
+#squelch_close_db = -36      # hiss above this: closed
+#squelch_open_ms  = 120
+#squelch_close_ms = 250
+
+[siglev]
+# The signal strength reported to the repeater (which votes with it), 0..100,
+# also from the hiss: 0 at noise_open_db, 100 at noise_full_db (full quieting).
+#noise_hz      = 3500        # the hiss is measured above this frequency
+#noise_open_db = -36
+#noise_full_db = -60
+
+[ctcss]
+# Everything on the frequency opens this receiver. With a tone it listens
+# like the repeater does: only stations that send it.
+#detect = true
+#tone   = 131.8
+
+[uplink]
+listen_port   = 5211         # the repeater connects here (5210 is a tailchaser-receiver's)
+auth_key      =              # REQUIRED  the same as [receiver2] auth_key on the repeater
+
+[gate]
+mode          = on           # on: only what has a voice on it is passed on | off: every carrier
+
+[status]
+http_port     = 8081         # 8080 is the other TailChaser program's on the same box
+#bind         = 0.0.0.0
+admin         = true
+
+[log]
+level         = info

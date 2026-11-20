@@ -22,6 +22,7 @@
 #include "log.h"
 #include "mixer.h"
 #include "netrx.h"
+#include "sdr.h"
 #include "nettrx.h"
 #include "reflector.h"
 #include "role.h"
@@ -314,8 +315,9 @@ static void log_setup(const config_t *cfg, const role_t *role)
     if (role->tx && cfg->tx.duck_db > 0.0f)
         log_info("tx: Morse and announcements %.0f dB down while somebody is talking", (double)cfg->tx.duck_db);
     if (role->rx && cfg->siglev.mode == SIGLEV_NOISE)
-        log_info("siglev: from the receiver noise above 5.5 kHz — %.0f dBFS without a signal = 0, "
-                 "%.0f dBFS = 100", (double)cfg->siglev.noise_open_db, (double)cfg->siglev.noise_full_db);
+        log_info("siglev: from the receiver noise above %.1f kHz — %.0f dBFS without a signal = 0, "
+                 "%.0f dBFS = 100", cfg->siglev.noise_hz / 1000.0, (double)cfg->siglev.noise_open_db,
+                 (double)cfg->siglev.noise_full_db);
     if (role->rx && cfg->audio.deemphasis)
         log_info("audio: de-emphasis in software (discriminator audio)");
     if (role->tx && r->pa_line >= 0)
@@ -377,10 +379,11 @@ static void log_setup(const config_t *cfg, const role_t *role)
 }
 
 /* ---- transmitter: what its receiver says, handed to the engine ---- */
-static void rl_squelch(void *ctx, bool open, float siglev) { engine_remote_squelch(ctx, open, siglev); }
-static void rl_audio(void *ctx, const int16_t *pcm, int n) { engine_remote_audio(ctx, pcm, n); }
-static void rl_dtmf(void *ctx, char digit, int ms)         { engine_remote_dtmf(ctx, digit, ms); }
-static void rl_siglev(void *ctx, float siglev)             { engine_remote_siglev(ctx, siglev); }
+typedef struct { engine_t *eng; int link; } rl_ctx_t;
+static void rl_squelch(void *ctx, bool open, float siglev) { rl_ctx_t *c = ctx; engine_remote_squelch(c->eng, c->link, open, siglev); }
+static void rl_audio(void *ctx, const int16_t *pcm, int n) { rl_ctx_t *c = ctx; engine_remote_audio(c->eng, c->link, pcm, n); }
+static void rl_dtmf(void *ctx, char digit, int ms)         { rl_ctx_t *c = ctx; engine_remote_dtmf(c->eng, c->link, digit, ms); }
+static void rl_siglev(void *ctx, float siglev)             { rl_ctx_t *c = ctx; engine_remote_siglev(c->eng, c->link, siglev); }
 
 /* refresh_after_tx: the chip gets its filter settings again once the carrier
  * has dropped (some modules lose them next to a power amplifier). */
@@ -461,7 +464,10 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     serial_worker_t *sw = NULL;
     reflector_t     *ref = NULL;
     nettrx_t        *uplink = NULL;
-    netrx_t         *rxlink = NULL;
+    netrx_t         *rxlinks[CFG_MAX_RECEIVERS] = { NULL };
+    static rl_ctx_t  rl_ctx[CFG_MAX_RECEIVERS];
+    int              n_rxl = 0;
+    sdr_t           *sdr = NULL;
     status_t        *status = NULL;
     admin_t         *admin = NULL;
     engine_t        *eng = NULL;
@@ -475,7 +481,9 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     log_info("%s %s starting", role->binary, TAILCHASER_VERSION);
     log_info("board: %s", detect_pi_model(model, sizeof model));
 
-    if (file_input) {
+    if (role->sdr && !file_input) {
+        log_info("receiver: a web SDR — %s at %s, %.4f MHz", cfg->sdr.type, cfg->sdr.url, cfg->sdr.freq_hz / 1e6);
+    } else if (file_input) {
         /* Bench mode: no radio, no GPIO, no sound card. */
         log_warn("audio is a FILE (%s) — radio hardware is not used", cfg->audio.alsa_device);
         /* ...unless the test suite hands us a stand-in SA818 on a pty, to see
@@ -628,24 +636,41 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     eng = engine_new(cfg, role, audio, ref, uplink, gpio, status);
     if (!eng)
         goto done;
-    if (role->remote_rx) {
+    for (int k = 0; k < config_receivers(cfg, role); k++) {
+        const receiver_config_t *rcv = config_receiver(cfg, k);
         netrx_cfg_t xcfg;
         memset(&xcfg, 0, sizeof xcfg);
-        scopy(xcfg.host, sizeof xcfg.host, cfg->receiver.host);
-        xcfg.port = cfg->receiver.port;
-        scopy(xcfg.auth_key, sizeof xcfg.auth_key, cfg->receiver.auth_key);
-        scopy(xcfg.codec, sizeof xcfg.codec, cfg->receiver.codec);
+        scopy(xcfg.host, sizeof xcfg.host, rcv->host);
+        xcfg.port = rcv->port;
+        scopy(xcfg.auth_key, sizeof xcfg.auth_key, rcv->auth_key);
+        scopy(xcfg.codec, sizeof xcfg.codec, rcv->codec);
         xcfg.sample_rate = cfg->audio.sample_rate;
-        netrx_sink_t xs = { eng, rl_squelch, rl_audio, rl_dtmf, rl_siglev };
-        rxlink = netrx_new(&xcfg, &xs);
-        if (!rxlink)
+        rl_ctx[k] = (rl_ctx_t){ eng, k };
+        netrx_sink_t xs = { &rl_ctx[k], rl_squelch, rl_audio, rl_dtmf, rl_siglev };
+        rxlinks[k] = netrx_new(&xcfg, &xs);
+        if (!rxlinks[k])
             goto done;
-        engine_set_rxlink(eng, rxlink);
+        n_rxl = k + 1;
+        engine_add_rxlink(eng, rxlinks[k], rcv->name, rcv->siglev_offset);
     }
+    if (n_rxl > 1 || (role->rx && n_rxl > 0))
+        log_info("voter: %d receiver%s elsewhere%s — the one that hears a station first has the over, a better one takes it",
+                 n_rxl, n_rxl == 1 ? "" : "s", role->rx ? " and the one in this box" : "");
     if (role->tx && r->refresh_after_tx && sw) {
         refresh.sw = sw;
         refresh.r = r;
         engine_set_unkey_hook(eng, refresh_chip, &refresh);
+    }
+    if (role->sdr && !file_input) {
+        sdr = sdr_start(&cfg->sdr, cfg->audio.sample_rate);
+        if (!sdr)
+            goto done;
+        audio_use_sdr(audio, sdr);
+        status_snapshot_t *d = status_lock(status);
+        d->has_sdr = true;
+        snprintf(d->sdr_type, sizeof d->sdr_type, "%.15s", cfg->sdr.type);
+        snprintf(d->sdr_url, sizeof d->sdr_url, "%.255s", cfg->sdr.url);
+        status_unlock(status);
     }
     if (audio_start(audio) != 0) {
         log_error("audio failed to start");
@@ -661,9 +686,9 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     int sw_fd  = sw ? serial_worker_result_fd(sw) : -1;
     rc = 0;
     while (!g_stop) {
-        struct pollfd p[9];
+        struct pollfd p[9 + CFG_MAX_RECEIVERS];
         int n = 0, i_audio, i_net = -1, i_ev = -1, i_cos = -1, i_sw = -1;
-        int i_listen = -1, i_client = -1, i_rxl = -1;
+        int i_listen = -1, i_client = -1, i_rxl[CFG_MAX_RECEIVERS];
         p[i_audio = n++] = (struct pollfd){ audio_fd(audio), POLLIN, 0 };
         if (ref) {
             p[i_net = n++] = (struct pollfd){ reflector_rx_audio_fd(ref), POLLIN, 0 };
@@ -677,9 +702,12 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
                 p[i_client = n++] = (struct pollfd){ nettrx_client_fd(uplink),
                     (short)(POLLIN | (nettrx_want_write(uplink) ? POLLOUT : 0)), 0 };
         }
-        if (rxlink && netrx_fd(rxlink) >= 0)
-            p[i_rxl = n++] = (struct pollfd){ netrx_fd(rxlink),
-                (short)(POLLIN | (netrx_want_write(rxlink) ? POLLOUT : 0)), 0 };
+        for (int k = 0; k < n_rxl; k++) {
+            i_rxl[k] = -1;
+            if (netrx_fd(rxlinks[k]) >= 0)
+                p[i_rxl[k] = n++] = (struct pollfd){ netrx_fd(rxlinks[k]),
+                    (short)(POLLIN | (netrx_want_write(rxlinks[k]) ? POLLOUT : 0)), 0 };
+        }
 
         if (poll(p, (nfds_t)n, 100) < 0) {
             if (errno == EINTR)
@@ -737,11 +765,12 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
             }
         }
         /* transmitter: the receiver we listen to */
-        if (rxlink) {
-            if (i_rxl >= 0 && netrx_fd(rxlink) == p[i_rxl].fd) {
-                if (p[i_rxl].revents & (POLLOUT | POLLERR | POLLHUP))
+        for (int k = 0; k < n_rxl; k++) {
+            netrx_t *rxlink = rxlinks[k];
+            if (i_rxl[k] >= 0 && netrx_fd(rxlink) == p[i_rxl[k]].fd) {
+                if (p[i_rxl[k]].revents & (POLLOUT | POLLERR | POLLHUP))
                     netrx_on_writable(rxlink);
-                if (netrx_fd(rxlink) >= 0 && (p[i_rxl].revents & (POLLIN | POLLHUP | POLLERR)))
+                if (netrx_fd(rxlink) >= 0 && (p[i_rxl[k]].revents & (POLLIN | POLLHUP | POLLERR)))
                     netrx_on_readable(rxlink);
             }
             netrx_tick(rxlink, now);
@@ -801,6 +830,22 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
         if (now - last_status_ms >= STATUS_PUSH_MS) {
             last_status_ms = now;
             engine_push_status(eng);
+            if (sdr) {
+                sdr_status_t ss;
+                sdr_get_status(sdr, &ss);
+                status_snapshot_t *d = status_lock(status);
+                d->sdr_connected = ss.connected;
+                d->sdr_listening = ss.listening;
+                snprintf(d->sdr_state, sizeof d->sdr_state, "%s", ss.state);
+                snprintf(d->sdr_server, sizeof d->sdr_server, "%s", ss.server);
+                d->sdr_smeter_db = ss.smeter_db;
+                d->sdr_buffer_ms = ss.buffered_ms;
+                d->sdr_rate = ss.in_rate;
+                d->sdr_connects = ss.connects;
+                d->sdr_underruns = ss.underruns;
+                d->sdr_dropped_ms = ss.dropped_ms;
+                status_unlock(status);
+            }
         }
         if (now - last_wd_ms >= WATCHDOG_MS) {
             last_wd_ms = now;
@@ -812,8 +857,10 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
 
 done:
     if (eng) engine_free(eng);          /* drops the carrier */
+    if (audio) audio_stop(audio);
+    if (sdr) sdr_stop(sdr);
     if (audio) audio_free(audio);
-    if (rxlink) netrx_free(rxlink);
+    for (int k = 0; k < n_rxl; k++) netrx_free(rxlinks[k]);
     if (uplink) nettrx_free(uplink);
     if (ref) reflector_free(ref);
     if (status) status_free(status);

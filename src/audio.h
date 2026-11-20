@@ -44,6 +44,10 @@ void     audio_free(audio_t *a);
 
 bool audio_is_file(const audio_t *a);
 
+/* Instead of a sound card: what a web SDR hears (before audio_start). */
+struct sdr;
+void audio_use_sdr(audio_t *a, struct sdr *sdr);
+
 /* ---- receive: thread -> main ---- */
 int  audio_fd(const audio_t *a);                    /* POLLIN when frames wait   */
 int  audio_pop(audio_t *a, audio_frame_t *out);     /* 0 = got one, -1 = empty   */

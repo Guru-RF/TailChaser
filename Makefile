@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS
-# TailChaser — one source tree, four programs:
+# TailChaser — one source tree, five programs:
 #
 #   tailchaser-simplex      simplex FM node on a reflector talkgroup
 #   tailchaser-duplex       repeater, receiver and transmitter in one box
 #   tailchaser-receiver     receive site of a split repeater
 #   tailchaser-transmitter  transmit site of a split repeater
+#   tailchaser-sdrreceiver  a receiver on a web SDR, to vote with
 #
-#   make                 release build of all four (on the Pi)
+#   make                 release build of all five (on the Pi)
 #   make debug           ASan/UBSan, -Og -g
 #   make NOGPIO=1        build without libgpiod (desktop; file audio only)
 #   make tools           vadtest, gatetest, dtmftest, agctest, ctcsstest (the detector, the gate,
@@ -19,7 +20,7 @@
 #                        two nodes through a real svxreflector
 #   make cutover         bootstrap.sh replace-svxlink / rollback and the service,
 #                        rehearsed under systemd in a container (Docker, ~4 min)
-#   sudo make install [ROLE=simplex]     one role, or all four without ROLE
+#   sudo make install [ROLE=simplex]     one role, or all five without ROLE
 #
 # Target: Raspberry Pi OS / Debian aarch64, Bookworm or Trixie. The GPIO layer
 # exists twice — src/gpio.c for libgpiod 2.x (Trixie), src/gpio_v1.c for 1.x
@@ -42,14 +43,14 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || cat VERSI
 CFLAGS  := $(CSTD) $(WARN) $(OPT) -D_GNU_SOURCE $(PKG_CFLAGS) -DTAILCHASER_VERSION='"$(VERSION)"'
 LDLIBS  := $(PKG_LIBS) -lpthread -lm -lresolv
 
-ROLES := simplex duplex receiver transmitter
+ROLES := simplex duplex receiver transmitter sdrreceiver
 BINS  := $(addprefix tailchaser-,$(ROLES))
 
 SRC := src/main.c src/role.c src/config.c src/engine.c src/audio.c src/audioproc.c src/ctcss.c src/cw.c \
        src/gate.c src/vad.c src/dtmf.c \
        src/reflector.c src/refmsg.c src/refcrypto.c src/tls.c src/pki.c src/srv.c \
        src/jitter.c src/opus_codec.c \
-       src/nettrx.c src/netrx.c \
+       src/nettrx.c src/netrx.c src/sdr.c \
        src/status.c src/admin.c src/sa818.c src/serial_worker.c src/mixer.c \
        src/detect.c src/log.c src/util.c src/wav.c
 GPIOD_MAJOR := $(firstword $(subst ., ,$(shell pkg-config --modversion libgpiod 2>/dev/null)))
@@ -64,7 +65,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(OBJ:.o=.d) $(patsubst %,src/bin/%.d,$(ROLES))
 
 TOOL_CFLAGS := $(CSTD) $(WARN) $(OPT) -D_GNU_SOURCE -Isrc
-TOOLS := vadtest gatetest dtmftest agctest ctcsstest
+TOOLS := vadtest gatetest dtmftest agctest ctcsstest opuspkt
 
 PREFIX  ?= /usr/local
 DESTDIR ?=
@@ -78,7 +79,7 @@ all: pkgcheck $(BINS)
 debug: OPT := -Og -g -fsanitize=address,undefined
 debug: clean $(BINS)
 
-# The four programs are the same objects behind four one-line main()s.
+# The five programs are the same objects behind five one-line main()s.
 tailchaser-%: src/bin/%.o $(OBJ)
 	$(CC) $(CFLAGS) $< $(OBJ) -o $@ $(LDLIBS)
 
@@ -110,13 +111,16 @@ gatetest: tools/gatetest.c src/gate.c src/vad.c src/dtmf.c src/wav.c
 agctest: tools/agctest.c src/audioproc.c src/wav.c
 	$(CC) $(TOOL_CFLAGS) $^ -o $@ -lm
 
+opuspkt: tools/opuspkt.c
+	$(CC) $(TOOL_CFLAGS) $(PKG_CFLAGS) $^ -o $@ -lopus
+
 ctcsstest: tools/ctcsstest.c src/ctcss.c src/audioproc.c src/wav.c
 	$(CC) $(TOOL_CFLAGS) $^ -o $@ -lm
 
 # Without hardware: the programs play generated WAV files as squelch openings
 # and record what they would transmit, while stand-ins take the part of the
 # reflector, the repeater and the SA818.
-check: $(BINS) dtmftest gatetest agctest ctcsstest
+check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt
 	sh tests/migrate.sh ./tailchaser-simplex
 	python3 tests/dtmf.py ./dtmftest ./gatetest
 	python3 tests/agc.py ./agctest
@@ -124,6 +128,8 @@ check: $(BINS) dtmftest gatetest agctest ctcsstest
 	python3 tests/announce.py ./tailchaser-duplex tools/tailchaser-announce
 	python3 tools/devcal.py --selftest
 	python3 tests/admin.py ./tailchaser-duplex
+	python3 tests/sdr.py ./tailchaser-sdrreceiver ./opuspkt
+	python3 tests/voter.py ./tailchaser-receiver ./tailchaser-duplex ./tailchaser-simplex
 	python3 tests/e2e_receiver.py ./tailchaser-receiver
 	python3 tests/e2e_repeater.py ./tailchaser-receiver ./tailchaser-transmitter ./tailchaser-duplex
 	python3 tests/e2e_simplex.py ./tailchaser-simplex

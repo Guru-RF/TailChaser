@@ -40,7 +40,40 @@ typedef struct {
     char codec[8];          /* S16 | RAW | OPUS: the audio from the receiver      */
     int   status_port;      /* the receive site's status page: its status is passed on
                              * in ours as "remote_receiver" (0 = not)                */
+    char  name[24];         /* in the log and on the status page                    */
+    float siglev_offset;    /* added to what it reports, before the vote            */
 } receiver_config_t;
+
+#define CFG_MAX_RECEIVERS 4
+
+/* [voter] — more than one receiver: which one is listened to */
+typedef struct {
+    bool  switch_over;      /* change receiver during an over when another is better */
+    float margin;           /* ...by this much (signal, 0..100)                     */
+    int   hold_ms;          /* ...for this long                                     */
+    int   late_ms;          /* a receiver that is still open after the one that had
+                             * the over closed is its late copy for its delay plus
+                             * this long; after that it is a station of its own     */
+    int   tx_blank_ms;      /* simplex: receivers elsewhere hear our own transmitter,
+                             * late — not listened to this long after it            */
+} voter_config_t;
+
+/* [sdr] — sdrreceiver: the web SDR it listens on */
+typedef struct {
+    char   type[16];        /* openwebrx | kiwisdr | web888 | ubersdr              */
+    char   url[256];
+    double freq_hz;
+    int    bandwidth_hz;    /* the channel: 8000 narrow, 12000 wide                */
+    char   profile[64];     /* OpenWebRX: part of the name of the profile that has
+                             * the frequency (which device to look on first)       */
+    char   password[64];
+    char   name[32];        /* who we say we are, where the receiver asks          */
+    int    buffer_ms;       /* audio kept in store against jitter                  */
+    bool   tls_verify;
+    /* the squelch, from the hiss above the speech band */
+    float  squelch_open_db, squelch_close_db;
+    int    squelch_open_ms, squelch_close_ms;
+} sdr_config_t;
 
 /* [siglev] — receiver: the signal level reported to the repeater (0..100) */
 typedef struct {
@@ -50,6 +83,7 @@ typedef struct {
     int   rssi_hi;          /* raw SA818 RSSI mapped to siglev 100                */
     float noise_open_db;    /* noise: the level above the speech band without a signal (0) */
     float noise_full_db;    /* ...and with a full-quieting one (100)              */
+    int   noise_hz;         /* the hiss is measured above this frequency          */
 } siglev_config_t;
 
 /* [repeater] — duplex, transmitter */
@@ -226,8 +260,11 @@ typedef struct {
 typedef struct {
     link_config_t   link;
     uplink_config_t   uplink;
-    receiver_config_t receiver;
+    receiver_config_t receiver;         /* [receiver] */
+    receiver_config_t receiver_more[CFG_MAX_RECEIVERS - 1];     /* [receiver2] .. [receiver4] */
+    voter_config_t    voter;
     siglev_config_t   siglev;
+    sdr_config_t      sdr;
     repeater_config_t repeater;
     audio_config_t  audio;
     gpio_config_t   gpio;
@@ -248,6 +285,9 @@ typedef struct {
 /* The defaults of a role: a talkgroup node and a repeater receiver want
  * different things from the same gate (gate.h). */
 void config_defaults(config_t *cfg, const role_t *role);
+/* The receivers elsewhere this node listens to: [receiver], [receiver2], ... */
+const receiver_config_t *config_receiver(const config_t *cfg, int i);
+int config_receivers(const config_t *cfg, const role_t *role);
 int  config_load(config_t *cfg, const char *path);
 
 /* What follows from the role and the file together (a receiver's transmit

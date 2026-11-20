@@ -6,7 +6,7 @@
 talkgroup — on a Raspberry Pi with a sound card and a radio. Website:
 **[TailChaser.app](https://tailchaser.app)**.
 
-One source tree, four small C programs. Pick the one that matches the site:
+One source tree, five small C programs. Pick the one that matches the site:
 
 | program | the site | it has |
 |---|---|---|
@@ -14,6 +14,7 @@ One source tree, four small C programs. Pick the one that matches the site:
 | **TailChaser-Duplex** `tailchaser-duplex` | a repeater in one box | receiver + transmitter + repeater logic + reflector link |
 | **TailChaser-Receiver** `tailchaser-receiver` | the receive site of a split repeater | receiver; serves it to the transmit site |
 | **TailChaser-Transmitter** `tailchaser-transmitter` | the transmit site of a split repeater | transmitter + repeater logic + reflector link; gets its receiver over the network |
+| **TailChaser-SDRReceiver** `tailchaser-sdrreceiver` | an extra receiver, anywhere | no radio: listens on a web SDR (OpenWebRX, KiwiSDR, Web-888, UberSDR) and serves that to a repeater or node, which votes |
 
 **Compatible with [SvxReflector](https://github.com/sm0svx/svxlink) and
 TailchaserReflector**: the reflector link is the SvxReflector protocol
@@ -52,7 +53,7 @@ talkgroup and on a split site. What is different is the scope and the defaults.
 | | SvxLink | TailChaser |
 |---|---|---|
 | What it is | a general voice-services framework: logics, modules (EchoLink, parrot, voice mail…), TCL event scripts | one job: an FM repeater or simplex node on a reflector talkgroup |
-| Programs | `svxlink` + `remotetrx`, one big configuration | four programs with configurations that look alike; each has only what its site needs |
+| Programs | `svxlink` + `remotetrx`, one big configuration | five programs with configurations that look alike; each has only what its site needs |
 | What reaches the talkgroup | whatever opens the squelch | only a voice: a gate with a voice detector keeps noise, dead carriers and tone bursts off the reflector (`docs/DETECTION.md`) |
 | Levels | set per site with gains; every node sounds different | every over is levelled to one speech level before it goes anywhere |
 | Squelch | many detectors (CTCSS, SigLev, GPIO, …) with thresholds to tune | the radio's line, a CTCSS tone found in the audio, or both — with the audio held back so the first word and the noise tail are right |
@@ -153,7 +154,7 @@ Its numbers come from the SDR's audio, which has passed the SDR's own filters
 and AGC: they compare stations on the same receiver, they are not kHz. For
 kHz, `devcal.py`.
 
-## What all four have in common
+## What they all have in common
 
 **The talkgroup only hears a site when somebody is actually talking.** The
 radio's squelch says "there is a carrier", not "there is a voice". The gate
@@ -182,7 +183,7 @@ line does not respond; and whatever happens to the daemon, the service runs
 `tailchaser-<role> -u` afterwards, which releases PTT and the amplifier line.
 
 **One kind of configuration file.** `/etc/tailchaser/<role>.conf` — the same
-sections with the same meaning in all four, each program having only the
+sections with the same meaning in all of them, each program having only the
 sections for the parts it has:
 
 | section | simplex | duplex | receiver | transmitter |
@@ -476,6 +477,52 @@ tx: off after 13.6 s
 `-v` (or `[log] level = debug`) adds one line per event, including what the
 normaliser did with each over.
 
+## More receivers: voting, and a receiver on a web SDR
+
+A repeater or a node can listen with more than one receiver. Besides its own
+— the radio in the box, or a transmit site's `[receiver]` — it takes up to
+three or four others (`[receiver2]`, …): a `tailchaser-receiver` on another
+hill, or a **`tailchaser-sdrreceiver`**: a receiver without a radio, that
+listens to the frequency on a web SDR.
+
+```
+                        ┌─ the receiver in the box / the receive site
+ station ──► on the air ┤                                              ├─► voter ─► repeated, talkgroup
+                        └─ web SDR ─► tailchaser-sdrreceiver ─ 5211 ───┘
+```
+
+**tailchaser-sdrreceiver** (`sudo ./bootstrap.sh sdrreceiver`, settings in
+`/etc/tailchaser/sdrreceiver.conf`) needs no hardware and can run on the same
+box as the repeater, or anywhere else.
+
+| | |
+|---|---|
+| **Web SDRs** | `[sdr] type =` `openwebrx` (OpenWebRX and OpenWebRX+), `kiwisdr`, `web888`, `ubersdr`. One connection, narrow FM on `[sdr] freq` — for a repeater that is its **input** frequency. |
+| **A good guest** | It is one of the SDR's listeners, all day: ask the owner. It never changes what listeners share — on an OpenWebRX with several devices it moves its own connection to the device that is on the band, and waits when none is. A KiwiSDR or Web-888 with a time limit wants the owner's password (`[sdr] password`); an UberSDR's hourly session limit is answered by connecting again. |
+| **Squelch** | A web SDR gives audio only, so the squelch is made from it: an FM receiver without a carrier hisses, a carrier quiets it (`[sdr] squelch_open_db` / `squelch_close_db`; the status page shows the hiss). `[ctcss] detect` adds the tone, so it opens for the same stations as the repeater. |
+| **Signal strength** | From the same hiss: full quieting = 100 (`[siglev]`). That is what the repeater votes with. |
+| **Then** | the same as a receive site: the gate (a voice, not a carrier), levelling, DTMF, the RemoteTrx link on `[uplink] listen_port` (5211), a status page (8081). |
+
+**Voting** (in tailchaser-transmitter, -duplex and -simplex, `[voter]`):
+
+- The receiver that hears a station first has the over.
+- Another one takes it when it hears the station clearly better for a while
+  (`margin`, `hold_ms`; `switch = false` turns that off).
+- A receiver on the internet is late — a web SDR by a second or two. What it
+  still brings of an over that has ended on another receiver is the same over,
+  and is not repeated; only when it goes on for longer than it was late is it
+  a station the other receiver lost, and it gets the over. How late each
+  receiver is, is learnt as it goes.
+- On a simplex node the other receivers hear the node's own transmitter, late:
+  they are not listened to during a transmission and `tx_blank_ms` after it.
+
+The status page and `/api/v1/status` (`voter`) say which receiver has the over
+and how many each has had; the log says where every over came from.
+
+Not tested against the real thing yet: KiwiSDR, Web-888 and UberSDR are
+written from their source code and tested against stand-ins only. OpenWebRX
+is tested on a live receiver.
+
 ## The admin portal and the API
 
 `http://<the node>:8080/admin` — on the same port as the status page.
@@ -563,15 +610,16 @@ through a real svxreflector in Docker.
 ## Layout
 
 ```
-src/bin/*.c        four one-line main()s; src/role.c says what each program has
+src/bin/*.c        five one-line main()s; src/role.c says what each program has
 src/main.c         start-up, the poll loop
-src/engine.c       the node logic for all four roles
+src/engine.c       the node logic for all roles, the voter
 src/gate.c vad.c dtmf.c      the squelch gate, voice detector, DTMF decoder
 src/audioproc.c    normaliser, de-emphasis, transmit shaper
 src/ctcss.c        tone squelch in software
 src/reflector.c refmsg.c refcrypto.c tls.c pki.c srv.c   SvxReflector client
 src/nettrx.c       RemoteTrx server (receiver)     src/netrx.c   its client (transmitter)
 src/audio.c mixer.c sa818.c serial_worker.c gpio*.c      the hardware
+src/sdr.c sdr_kiwi.inc sdr_uber.inc   the web SDR client: OpenWebRX, KiwiSDR / Web-888, UberSDR
 src/status.c       status page, the HTTP server
 src/admin.c admin.html   the admin portal and the API
 config/            one example per program

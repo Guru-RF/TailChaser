@@ -60,12 +60,13 @@ void engine_on_net_audio(engine_t *e, const uint8_t *opus, int len);
 void engine_on_event(engine_t *e, const reflector_event_t *ev);
 
 /* A transmitter: what its receiver reports over the link (netrx.c). */
-void engine_remote_squelch(engine_t *e, bool open, float siglev);
-void engine_remote_audio(engine_t *e, const int16_t *pcm, int n);
-void engine_remote_dtmf(engine_t *e, char digit, int duration_ms);
-void engine_remote_siglev(engine_t *e, float siglev);
+void engine_remote_squelch(engine_t *e, int link, bool open, float siglev);
+void engine_remote_audio(engine_t *e, int link, const int16_t *pcm, int n);
+void engine_remote_dtmf(engine_t *e, int link, char digit, int duration_ms);
+void engine_remote_siglev(engine_t *e, int link, float siglev);
 /* ...and the link itself, for the status page. */
-void engine_set_rxlink(engine_t *e, netrx_t *rxlink);
+/* A receiver elsewhere; returns its number (the `link` of the calls above). */
+int  engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset);
 
 /* A test transmission (tones), as soon as the transmitter is free. */
 void engine_test_tx(engine_t *e);

@@ -139,7 +139,10 @@ static const char PAGE[] =
 "$('sub').textContent=(r.type=='none'?'radio on the sound card':"
 "(h.rx&&h.tx?r.freq_mhz.toFixed(4)+' MHz'+(r.freq_tx_mhz!=r.freq_mhz?' (TX '+r.freq_tx_mhz.toFixed(4)+')':''):h.tx?'TX '+r.freq_tx_mhz.toFixed(4)+' MHz':'RX '+r.freq_mhz.toFixed(4)+' MHz')+' · '+r.bandwidth+"
 "(h.rx?' · CTCSS RX '+r.ctcss_rx:'')+(h.tx?' · CTCSS TX '+r.ctcss_tx:'')+(h.rx?' · squelch '+r.squelch:''))+(h.rx?' · gate '+g.mode:'')+"
-"(d.norm.enabled&&(h.rx||h.rxlink)?' · levelled':'')+(d.block.rx?' · RECEIVER BLOCKED':'')+(d.block.tx?' · TRANSMITTER BLOCKED':'');"
+"(d.norm.enabled&&(h.rx||h.rxlink)?' · levelled':'')+(d.block.rx?' · RECEIVER BLOCKED':'')+(d.block.tx?' · TRANSMITTER BLOCKED':'')+"
+"(d.sdr?' · web SDR: '+d.sdr.state+(d.sdr.listening?' (hiss '+d.noise.level_db.toFixed(0)+' dBFS)':''):'')+"
+"(d.voter.receivers.length&&(h.rx||d.voter.receivers.length>1)?' · receivers: '+(h.rx?'here'+(d.voter.active==0?' (has the over)':'')+', ':'')+"
+"d.voter.receivers.map(v=>v.name+(!v.connected?' (not connected)':v.active?' (has the over)':v.ignored?' (not listened to)':v.squelch?' (hears it too)':'')).join(', '):'');"
 "if(h.uplink){$('up').innerHTML=u.connected?pill('ok','connected'):pill('bad','not connected');"
 "$('ups').textContent=u.connected?(u.peer+' · '+(u.codec||'no codec yet')+(u.mute==2?' · muted':'')):'waiting on TCP port '+u.listen_port+' · RemoteTrx 2.'+u.proto_minor}"
 "$('link').innerHTML=l.connected?pill('ok','TG '+l.tg):l.waiting_for_cert?pill('warn','waiting for certificate'):pill('bad','not connected');"
@@ -232,8 +235,25 @@ static size_t build_json(status_t *s, char *out, size_t cap)
               js(d->rxlink.codec, t2, sizeof t2), d->rxlink.proto_major, d->rxlink.proto_minor,
               B(d->rxlink.squelch_open), (double)d->rxlink.siglev, d->rxlink.connects,
               d->rxlink.auth_failures, d->rxlink.audio_frames);
+    sb_printf(&b, "\"voter\":{\"active\":%d,\"receivers\":[", d->voter_active);
+    for (int i = 0; i < d->n_receivers; i++)
+        sb_printf(&b, "%s{\"name\":\"%s\",\"peer\":\"%s\",\"connected\":%s,\"squelch\":%s,\"ignored\":%s,"
+                      "\"siglev\":%.1f,\"active\":%s,\"overs\":%lu}", i ? "," : "",
+                  js(d->receivers[i].name, t1, sizeof t1), js(d->receivers[i].link.peer, t2, sizeof t2),
+                  B(d->receivers[i].link.connected), B(d->receivers[i].open), B(d->receivers[i].ignored),
+                  (double)d->receivers[i].siglev, B(d->voter_active == i + 1), d->receivers[i].won);
+    sb_printf(&b, "]},");
     sb_printf(&b, "\"norm\":{\"enabled\":%s,\"gain_db\":%.1f},", B(d->normalize), (double)d->norm_gain_db);
     sb_printf(&b, "\"noise\":{\"meter\":%s,\"level_db\":%.1f},", B(d->noise_meter), (double)d->noise_db);
+    if (d->has_sdr) {
+        char u1[400], u2[400], u3[200];
+        sb_printf(&b, "\"sdr\":{\"type\":\"%s\",\"url\":\"%s\",\"connected\":%s,\"listening\":%s,\"state\":\"%s\","
+                      "\"server\":\"%s\",\"smeter_db\":%.1f,\"buffer_ms\":%d,\"rate\":%d,\"connects\":%lu,"
+                      "\"underruns\":%lu,\"dropped_ms\":%lu},",
+                  d->sdr_type, js(d->sdr_url, u1, sizeof u1), B(d->sdr_connected), B(d->sdr_listening),
+                  js(d->sdr_state, u2, sizeof u2), js(d->sdr_server, u3, sizeof u3), (double)d->sdr_smeter_db,
+                  d->sdr_buffer_ms, d->sdr_rate, d->sdr_connects, d->sdr_underruns, d->sdr_dropped_ms);
+    }
     sb_printf(&b, "\"ctcss\":{\"detect\":%s,\"tone_hz\":%.1f,\"open\":%s,\"level_db\":%.1f,\"snr_db\":%.1f},",
               B(d->tone_detect), (double)d->tone_hz, B(d->tone_detect && d->tone_open),
               (double)(d->tone_detect ? d->tone_level_db : -120.0f), (double)(d->tone_detect ? d->tone_snr_db : 0.0f));

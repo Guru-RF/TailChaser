@@ -72,6 +72,29 @@ locator       =                            # JO20eu
 hidden        = false                      # true = ask the dashboards not to list the node
 tone_to_talkgroup = true                   # tell which CTCSS tone opens the home talkgroup
 
+# More receivers, and voting. Besides the receiver in this box, up to four
+# others can be listened to: a tailchaser-receiver on another site, or a
+# tailchaser-sdrreceiver — a web SDR (OpenWebRX, KiwiSDR, Web-888, UberSDR)
+# tuned to the repeater's input. The receiver that hears a
+# station first has the over; a better one takes it over; what a late one
+# (a web SDR is a second or two behind) still brings of an over that has ended
+# is not listened to.
+#[receiver]
+#host         = 127.0.0.1:5211             # a tailchaser-sdrreceiver on this box
+#auth_key     =                            # its [uplink] auth_key
+#name         = web SDR                    # in the log and on the status page
+#siglev_offset = 0                         # added to the signal it reports, before the vote
+#codec        = S16
+#[receiver2] ...
+
+#[voter]
+#switch       = true                       # another receiver takes an over when it hears it better...
+#margin       = 25                         # ...by this much (signal, 0..100)
+#hold_ms      = 500                        # ...for this long
+#late_ms      = 700                        # a receiver still open after the one that had the over
+                                           # closed: its late copy for its delay plus this long;
+                                           # after that it is a station of its own
+
 [radio]
 type          = sa818                      # sa818 = an SA818 module, programmed by this
                                            #   program over its serial port.

@@ -25,6 +25,12 @@ static const role_t ROLES[] = {
         "repeater transmitter",
         .tx = true, .reflector = true, .remote_rx = true, .repeater = true,
     },
+    [ROLE_SDRRECEIVER] = {
+        ROLE_SDRRECEIVER, "sdrreceiver", "tailchaser-sdrreceiver",
+        "a receiver on a web SDR (OpenWebRX, KiwiSDR, Web-888, UberSDR), for a repeater or node to vote with",
+        "receiver on a web SDR",
+        .rx = true, .uplink = true, .sdr = true,
+    },
 };
 
 const role_t *role_get(role_id_t id)

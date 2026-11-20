@@ -65,6 +65,12 @@ typedef struct {
     char   bandwidth[8];
     char   ctcss_rx[12], ctcss_tx[12];
     int    squelch;
+    bool   has_sdr;                     /* the receiver is a web SDR */
+    char   sdr_type[16], sdr_url[256], sdr_state[160], sdr_server[96];
+    bool   sdr_connected, sdr_listening;
+    float  sdr_smeter_db;
+    int    sdr_buffer_ms, sdr_rate;
+    unsigned long sdr_connects, sdr_underruns, sdr_dropped_ms;
     bool   noise_meter;                 /* [siglev] mode = noise */
     float  noise_db;
     bool   tone_detect, tone_open;      /* [ctcss]: the software tone squelch */
@@ -83,6 +89,14 @@ typedef struct {
     reflector_status_t link;
     nettrx_status_t uplink;         /* receiver: the repeater that is connected  */
     netrx_status_t  rxlink;         /* transmitter: the link to its receiver     */
+    struct {                        /* every receiver elsewhere, and the vote     */
+        netrx_status_t link;
+        char  name[24];
+        float siglev;
+        bool  open, ignored;
+        unsigned long won;
+    } receivers[4];
+    int    n_receivers, voter_active;  /* -1 nobody, 0 the receiver here, 1+i    */
     float  siglev;                  /* 0..100                                    */
     bool   over_open;               /* an over is coming from the receiver       */
     float  norm_gain_db;            /* what the normaliser is doing              */

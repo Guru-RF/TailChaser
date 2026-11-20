@@ -51,7 +51,27 @@ struct engine {
     audio_t        *audio;
     reflector_t    *ref;            /* NULL: no talkgroup link (a receiver)        */
     nettrx_t       *uplink;         /* the repeater this receiver serves, or NULL  */
-    netrx_t        *rxlink;         /* the receiver of this transmitter, or NULL   */
+    /* The receivers elsewhere (a transmitter's own one, and those there to
+     * vote with), and who has the over: -1 nobody, 0 the receiver in this
+     * box, 1 + i the i-th of these. */
+    struct rxl {
+        netrx_t *link;
+        char     name[24];
+        float    offset, siglev;
+        bool     open, ignore;          /* ignore: this opening is not listened to */
+        uint64_t opened_at, wait_until, better_since;
+        int      lag_ms;                /* how late it is, as seen so far (0 = not seen) */
+        int16_t  acc[AUDIO_MAX_FRAME];  /* its audio, being framed */
+        int      acc_n;
+        unsigned long won;
+    } rxl[CFG_MAX_RECEIVERS];
+    int             n_rxl;
+    int             active;
+    bool            own_open;           /* the receiver in this box has an over */
+    uint64_t        own_at, own_better, switched_at, tx_seen_at;
+    int             last_src;           /* who had the over before: -1 nobody yet */
+    uint64_t        last_began, last_end;
+    bool            tx_seen;
     gpio_t         *gpio;
     status_t       *status;
     opus_chan_t    *codec;
@@ -75,6 +95,9 @@ struct engine {
     ctcss_t  ctcss;
     deemph_t deemph;
     bool     noise_on;              /* the signal level comes from the receiver noise */
+    bool     sdr_open;              /* a web SDR: the squelch made from its hiss      */
+    int      sdr_settle;
+    int      sdr_run;               /* ...frames the hiss has been on the other side  */
     noisemeter_t noise;
     int      noise_tick;
     agc_t    agc;               /* the normaliser on received audio            */
@@ -82,9 +105,6 @@ struct engine {
     int16_t  net_look[NET_LOOK][AUDIO_MAX_FRAME];   /* ...which looks this far ahead */
     int      look_head, look_n;
     uint64_t over_since;        /* when the over on the receiver began         */
-    float    remote_siglev;     /* transmitter: what its receiver reports      */
-    int16_t  racc[AUDIO_MAX_FRAME];     /* audio from the receiver, being framed */
-    int      racc_n;
 
     /* ---- repeater: received audio on its way to the transmitter ---- */
     int16_t *rptq;
@@ -215,6 +235,8 @@ static rx_class_t rx_class(const engine_t *e)
      * receiver hears never holds the transmitter back. */
     if (e->role->repeater)
         return e->local_over ? RX_BUSY : RX_FREE;
+    if (e->active > 0)                  /* a station heard by a receiver elsewhere */
+        return RX_BUSY;
     switch (gate_state(&e->gate)) {
     case GATE_IDLE:  return RX_FREE;
     case GATE_OPEN:
@@ -481,8 +503,9 @@ void engine_set_block(engine_t *e, bool rx, bool tx)
 {
     if (rx != e->block_rx) {
         e->block_rx = rx;
-        if (rx && e->cos_open && e->role->remote_rx)
-            engine_remote_squelch(e, false, e->remote_siglev);  /* a local one closes with the next frame */
+        for (int i = 0; rx && i < e->n_rxl; i++)        /* a local one closes with the next frame */
+            if (e->rxl[i].open)
+                engine_remote_squelch(e, i, false, e->rxl[i].siglev);
         log_warn("rx: the receiver is %s", rx ? "BLOCKED (admin): nothing it hears goes anywhere" : "released");
     }
     if (tx != e->block_tx) {
@@ -1107,7 +1130,6 @@ static void rx_over_begin(engine_t *e)
     e->rpt_frames = 0;
     e->rpt_lockout = false;
     e->beep_pending = false;
-    e->racc_n = 0;
     agc_begin_over(&e->agc);
     lvl_reset(&e->rx_lvl);
     if (e->uplink)
@@ -1228,17 +1250,26 @@ static void rx_digit(engine_t *e, char digit, int duration_ms)
 
 /* ---- a local receiver: the gate's sink ---- */
 
+static void vote_open(engine_t *e, int s);
+static void vote_close(engine_t *e, int s);
+
 static void sink_squelch(void *ctx, bool open)
 {
     engine_t *e = ctx;
-    if (open) rx_over_begin(e);
-    else      rx_over_end(e);
+    e->own_open = open;
+    if (open) {
+        e->own_at = e->t_ms;
+        vote_open(e, 0);
+    } else {
+        vote_close(e, 0);
+    }
 }
 
 static void sink_audio(void *ctx, const int16_t *pcm, int n)
 {
     engine_t *e = ctx;
-    rx_over_audio(e, pcm, n, !e->cos_open);
+    if (e->active == 0)
+        rx_over_audio(e, pcm, n, !e->cos_open);
 }
 
 static void sink_dtmf(void *ctx, char digit, int duration_ms)
@@ -1248,7 +1279,7 @@ static void sink_dtmf(void *ctx, char digit, int duration_ms)
 
 /* ---- a remote receiver: the link's sink (netrx.c) ---- */
 
-static void remote_over_done(engine_t *e)
+static void remote_over_done(engine_t *e, int i)
 {
     int ms = (int)(e->t_ms - e->over_since);
     char where[96] = "";
@@ -1260,8 +1291,8 @@ static void remote_over_done(engine_t *e)
         snprintf(where, sizeof where, " — NOT SENT: the reflector is not connected");
     float in_db = -120.0f, gain_db = 0.0f;
     bool lvl = agc_over_stats(&e->agc, &in_db, &gain_db);
-    log_info("rx: %.2f s from the receiver [signal %.0f, level %.0f dBFS]%s%s", ms / 1000.0,
-             (double)e->remote_siglev, (double)in_db,
+    log_info("rx: %.2f s from %s [signal %.0f, level %.0f dBFS]%s%s", ms / 1000.0, e->rxl[i].name,
+             (double)e->rxl[i].siglev, (double)in_db,
              e->rpt_lockout ? ", cut by the time-out" : ", repeated", where);
 
     status_opening_t o;
@@ -1270,9 +1301,9 @@ static void remote_over_done(engine_t *e)
     o.duration_ms  = ms;
     o.speech_at_ms = -1;
     o.level_avg_db = lvl ? in_db : -120.0f;
-    o.rssi         = (int)lrintf(e->remote_siglev);
+    o.rssi         = (int)lrintf(e->rxl[i].siglev);
     o.tg           = e->local_sent > 0 ? e->local_tg : 0;
-    snprintf(o.pass, sizeof o.pass, "receiver");
+    snprintf(o.pass, sizeof o.pass, "%s", e->n_rxl > 1 || e->role->rx ? e->rxl[i].name : "receiver");
     snprintf(o.would, sizeof o.would, "receiver");
     snprintf(o.looks_like, sizeof o.looks_like, "–");
     status_snapshot_t *d = status_lock(e->status);
@@ -1282,49 +1313,232 @@ static void remote_over_done(engine_t *e)
     status_unlock(e->status);
 }
 
-void engine_remote_squelch(engine_t *e, bool open, float siglev)
+/* ---- several receivers: the voter ----
+ *
+ * One receiver has the over; what the others hear of it is not used. Who:
+ * the first to open. A receiver on the internet is late — a web SDR by a
+ * second or more — so:
+ *   - when the one that had the over closes and another is still open, that
+ *     is the same over arriving late there: it is not listened to for as long
+ *     as it was late, and a little more. Only if it is still open after that
+ *     is it a station the first receiver lost, and it gets the over;
+ *   - during an over another receiver takes it when it hears the station
+ *     clearly better for a while (the listener then hears a moment twice, or
+ *     misses one: the price of a readable signal).
+ * A simplex node's other receivers hear its own transmitter, late: they are
+ * not listened to during a transmission and for a while after it. */
+
+static const char *src_name(const engine_t *e, int s) { return s == 0 ? "the receiver here" : e->rxl[s - 1].name; }
+
+static bool src_open(const engine_t *e, int s)
 {
+    return s == 0 ? e->own_open : e->rxl[s - 1].open && !e->rxl[s - 1].ignore;
+}
+
+static uint64_t src_opened_at(const engine_t *e, int s) { return s == 0 ? e->own_at : e->rxl[s - 1].opened_at; }
+
+static float src_siglev(const engine_t *e, int s)
+{
+    return s == 0 ? siglev_now(e) : e->rxl[s - 1].siglev + e->rxl[s - 1].offset;
+}
+
+static int n_src(const engine_t *e) { return 1 + e->n_rxl; }
+
+static void vote_begin(engine_t *e, int s)
+{
+    e->active = s;
+    e->switched_at = e->t_ms;
+    if (s > 0) {
+        e->rxl[s - 1].won++;
+        e->rxl[s - 1].acc_n = 0;
+    }
+    rx_over_begin(e);
+    if (e->n_rxl > 1 || (e->role->rx && e->n_rxl > 0))
+        log_debug("voter: %s has the over (signal %.0f)", src_name(e, s), (double)src_siglev(e, s));
+}
+
+#define LAG_UNKNOWN_MS 2500     /* a receiver whose delay has not been seen yet: assume a web SDR */
+
+static void lag_seen(struct rxl *l, uint64_t ms)
+{
+    if (ms > 5000) ms = 5000;
+    l->lag_ms = l->lag_ms ? (3 * l->lag_ms + (int)ms) / 4 : (int)ms;
+}
+
+static void vote_open(engine_t *e, int s)
+{
+    if (s > 0) {
+        struct rxl *l = &e->rxl[s - 1];
+        l->wait_until = 0;
+        if (e->active >= 0 && e->active != s) {
+            if (l->opened_at > src_opened_at(e, e->active))
+                lag_seen(l, l->opened_at - src_opened_at(e, e->active));
+        } else if (e->active < 0 && e->last_src >= 0 && e->last_src != s &&
+                   e->t_ms - e->last_end < (uint64_t)(l->lag_ms ? l->lag_ms : LAG_UNKNOWN_MS) + (uint64_t)e->cfg->voter.late_ms) {
+            /* An over has just ended on another receiver, and now this one
+             * opens: the same over, arriving late. It lasts as long as that
+             * one did; what is still there after that is somebody else. */
+            l->wait_until = e->t_ms + (e->last_end - e->last_began) + (uint64_t)e->cfg->voter.late_ms;
+            lag_seen(l, e->t_ms - e->last_began);
+        }
+    }
+    if (e->active < 0 && (s == 0 || e->rxl[s - 1].wait_until <= e->t_ms))
+        vote_begin(e, s);
+}
+
+/* The receiver that had the over closed. */
+static void vote_end(engine_t *e)
+{
+    int was = e->active;
+    uint64_t began = src_opened_at(e, was);
+    if (was > 0) {
+        struct rxl *l = &e->rxl[was - 1];
+        if (l->acc_n > 0) {                     /* a partial frame is padded out, not dropped */
+            memset(l->acc + l->acc_n, 0, sizeof(int16_t) * (size_t)(e->frame - l->acc_n));
+            l->acc_n = 0;
+            rx_over_audio(e, l->acc, e->frame, false);
+        }
+        remote_over_done(e, was - 1);
+    }
+    rx_over_end(e);
+    e->active = -1;
+    e->last_src = was;
+    e->last_began = began;
+    e->last_end = e->t_ms;
+    for (int i = 0; i < e->n_rxl; i++) {
+        struct rxl *l = &e->rxl[i];
+        if (i + 1 == was || !l->open || l->ignore)
+            continue;
+        uint64_t late = l->opened_at > began ? l->opened_at - began : 0;
+        if (late > 5000) late = 5000;
+        /* opened before the one that had the over: it is not behind — go on there */
+        l->wait_until = l->opened_at > began ? e->t_ms + late + (uint64_t)e->cfg->voter.late_ms : e->t_ms;
+    }
+}
+
+static void vote_close(engine_t *e, int s)
+{
+    if (e->active == s)
+        vote_end(e);
+}
+
+static void vote_tick(engine_t *e)
+{
+    const voter_config_t *v = &e->cfg->voter;
+    if (e->n_rxl == 0)
+        return;
+    /* one radio on one frequency: what the others hear now, or soon, is us */
+    if (e->role->tx && !e->role->repeater) {
+        if (e->tx != TX_OFF) {
+            e->tx_seen = true;
+            e->tx_seen_at = e->t_ms;
+        }
+        if (e->tx_seen && e->t_ms - e->tx_seen_at < (uint64_t)v->tx_blank_ms) {
+            for (int i = 0; i < e->n_rxl; i++) {
+                if (e->rxl[i].open && !e->rxl[i].ignore) {
+                    e->rxl[i].ignore = true;
+                    if (e->active == i + 1)
+                        vote_end(e);
+                }
+            }
+        }
+    }
+    if (e->active < 0) {
+        int best = -1;
+        for (int s = e->role->rx ? 0 : 1; s < n_src(e); s++)
+            if (src_open(e, s) && (s == 0 || e->rxl[s - 1].wait_until <= e->t_ms) &&
+                (best < 0 || src_siglev(e, s) > src_siglev(e, best)))
+                best = s;
+        if (best >= 0) {
+            if (best > 0)
+                log_info("voter: %s still hears a station — it gets the over", src_name(e, best));
+            vote_begin(e, best);
+        }
+        return;
+    }
+    if (!v->switch_over)
+        return;
+    int best = -1;
+    for (int s = e->role->rx ? 0 : 1; s < n_src(e); s++)
+        if (s != e->active && src_open(e, s) && src_siglev(e, s) >= src_siglev(e, e->active) + v->margin &&
+            (best < 0 || src_siglev(e, s) > src_siglev(e, best)))
+            best = s;
+    for (int i = 0; i < e->n_rxl; i++)
+        if (i + 1 != best)
+            e->rxl[i].better_since = 0;
+    if (best < 0) {
+        e->own_better = 0;
+        return;
+    }
+    uint64_t *since = best == 0 ? &e->own_better : &e->rxl[best - 1].better_since;
+    if (best != 0) e->own_better = 0;
+    if (*since == 0)
+        *since = e->t_ms ? e->t_ms : 1;
+    if (e->t_ms - *since < (uint64_t)v->hold_ms || e->t_ms - e->switched_at < 1000)
+        return;
+    log_info("voter: %s hears it better (signal %.0f, %s %.0f) — it takes the over", src_name(e, best),
+             (double)src_siglev(e, best), src_name(e, e->active), (double)src_siglev(e, e->active));
+    *since = 0;
+    e->active = best;
+    e->switched_at = e->t_ms;
+    if (best > 0) {
+        e->rxl[best - 1].won++;
+        e->rxl[best - 1].acc_n = 0;
+    }
+}
+
+void engine_remote_squelch(engine_t *e, int i, bool open, float siglev)
+{
+    struct rxl *l = &e->rxl[i];
     if (e->block_rx)
         open = false;
-    e->remote_siglev = siglev;
-    if (open == e->cos_open)
+    l->siglev = siglev;
+    if (open == l->open)
         return;
-    e->cos_open = open;
+    l->open = open;
     if (open) {
-        rx_over_begin(e);
+        l->opened_at = e->t_ms;
+        l->acc_n = 0;
+        l->ignore = e->role->tx && !e->role->repeater &&
+                    (e->tx != TX_OFF || (e->tx_seen && e->t_ms - e->tx_seen_at < (uint64_t)e->cfg->voter.tx_blank_ms));
+        if (!l->ignore)
+            vote_open(e, i + 1);
     } else {
-        /* what is left of a partial frame is padded out, not dropped */
-        if (e->racc_n > 0) {
-            memset(e->racc + e->racc_n, 0, sizeof(int16_t) * (size_t)(e->frame - e->racc_n));
-            e->racc_n = 0;
-            rx_over_audio(e, e->racc, e->frame, false);
-        }
-        remote_over_done(e);
-        rx_over_end(e);
+        vote_close(e, i + 1);
+        l->ignore = false;
+    }
+    if (!e->role->rx) {                         /* no receiver here: the squelch shown is theirs */
+        e->cos_open = false;
+        for (int k = 0; k < e->n_rxl; k++)
+            e->cos_open |= e->rxl[k].open;
     }
 }
 
-void engine_remote_audio(engine_t *e, const int16_t *pcm, int n)
+void engine_remote_audio(engine_t *e, int i, const int16_t *pcm, int n)
 {
-    if (e->block_rx)
-        return;
-    if (!e->local_over)
+    struct rxl *l = &e->rxl[i];
+    if (e->block_rx || e->active != i + 1)
         return;
     for (int off = 0; off < n;) {
-        int take = e->frame - e->racc_n;
+        int take = e->frame - l->acc_n;
         if (take > n - off) take = n - off;
-        memcpy(e->racc + e->racc_n, pcm + off, sizeof(int16_t) * (size_t)take);
-        e->racc_n += take;
+        memcpy(l->acc + l->acc_n, pcm + off, sizeof(int16_t) * (size_t)take);
+        l->acc_n += take;
         off += take;
-        if (e->racc_n == e->frame) {
-            e->racc_n = 0;
-            rx_over_audio(e, e->racc, e->frame, false);
+        if (l->acc_n == e->frame) {
+            l->acc_n = 0;
+            rx_over_audio(e, l->acc, e->frame, false);
         }
     }
 }
 
-void engine_remote_dtmf(engine_t *e, char digit, int duration_ms) { rx_digit(e, digit, duration_ms); }
-void engine_remote_siglev(engine_t *e, float siglev) { e->remote_siglev = siglev; }
+void engine_remote_dtmf(engine_t *e, int i, char digit, int duration_ms)
+{
+    if (e->active == i + 1)
+        rx_digit(e, digit, duration_ms);
+}
+
+void engine_remote_siglev(engine_t *e, int i, float siglev) { e->rxl[i].siglev = siglev; }
 
 static void sink_report(void *ctx, const gate_report_t *r)
 {
@@ -1490,6 +1704,32 @@ static void clock_tick(engine_t *e)
         net_over_end(e);
 }
 
+/* A web SDR gives audio and nothing else. Without a carrier an FM receiver
+ * hisses, loudly, up to the top of its audio; a carrier quiets it. So: the
+ * squelch is open while the hiss above the speech band is low. */
+static bool sdr_squelch(engine_t *e, bool audio)
+{
+    const sdr_config_t *c = &e->cfg->sdr;
+    if (!audio) {                               /* the SDR sends nothing */
+        e->sdr_run = 0;
+        e->sdr_settle = 25;                     /* ...and when it does again, the meter needs half a second */
+        e->noise.have = false;
+        return e->sdr_open = false;
+    }
+    if (e->sdr_settle > 0) {
+        e->sdr_settle--;
+        return false;
+    }
+    bool want = e->sdr_open ? e->noise.db < c->squelch_close_db : e->noise.db < c->squelch_open_db;
+    if (want == e->sdr_open) {
+        e->sdr_run = 0;
+    } else if (++e->sdr_run * e->frame_ms >= (want ? c->squelch_open_ms : c->squelch_close_ms)) {
+        e->sdr_open = want;
+        e->sdr_run = 0;
+    }
+    return e->sdr_open;
+}
+
 void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
 {
     e->t_ms += (uint64_t)e->frame_ms;
@@ -1502,6 +1742,8 @@ void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
             memcpy(pcm, f->pcm, sizeof(int16_t) * (size_t)f->n);
             if (e->noise_on)        /* the hiss, as the receiver gives it */
                 noisemeter_process(&e->noise, pcm, f->n);
+            if (e->role->sdr && f->sim_cos != 1)
+                cos = sdr_squelch(e, f->sim_cos < 0);
             /* no decoder in the radio: the tone is looked for in the audio */
             if (e->ctcss_on)
                 cos = ctcss_process(&e->ctcss, pcm, e->line_on ? cos : true);
@@ -1546,6 +1788,7 @@ void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
             gate_process(&e->gate, pcm, f->n, cos);
     }
 
+    vote_tick(e);
     clock_tick(e);
     if (e->role->tx)
         tx_tick(e);
@@ -1558,7 +1801,21 @@ bool engine_wants_rssi(const engine_t *e)
     return e->role->rx && e->cos_open && (e->tx == TX_OFF || e->role->repeater);
 }
 
-void engine_set_rxlink(engine_t *e, netrx_t *rxlink) { e->rxlink = rxlink; }
+int engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset)
+{
+    if (e->n_rxl == CFG_MAX_RECEIVERS)
+        return -1;
+    struct rxl *l = &e->rxl[e->n_rxl];
+    l->link = link;
+    l->offset = siglev_offset;
+    if (name && name[0])
+        snprintf(l->name, sizeof l->name, "%s", name);
+    else if (e->n_rxl == 0 && !e->role->rx)
+        snprintf(l->name, sizeof l->name, "the receiver");
+    else
+        snprintf(l->name, sizeof l->name, "receiver %d", e->n_rxl + 1);
+    return e->n_rxl++;
+}
 
 void engine_set_unkey_hook(engine_t *e, void (*fn)(void *), void *ctx)
 {
@@ -1590,7 +1847,7 @@ void engine_push_status(engine_t *e)
     memset(&up, 0, sizeof up);
     memset(&rxl, 0, sizeof rxl);
     if (e->uplink) nettrx_get_status(e->uplink, &up);
-    if (e->rxlink) netrx_get_status(e->rxlink, &rxl);
+    if (e->n_rxl) netrx_get_status(e->rxl[0].link, &rxl);
 
     status_snapshot_t *d = status_lock(e->status);
     d->noise_meter  = e->noise_on;
@@ -1604,7 +1861,17 @@ void engine_push_status(engine_t *e)
     d->link         = link;
     d->uplink       = up;
     d->rxlink       = rxl;
-    d->siglev       = e->role->remote_rx ? e->remote_siglev : siglev_now(e);
+    d->siglev       = e->role->remote_rx ? e->rxl[e->active > 0 ? e->active - 1 : 0].siglev : siglev_now(e);
+    d->n_receivers  = e->n_rxl;
+    d->voter_active = e->active;
+    for (int i = 0; i < e->n_rxl; i++) {
+        netrx_get_status(e->rxl[i].link, &d->receivers[i].link);
+        snprintf(d->receivers[i].name, sizeof d->receivers[i].name, "%s", e->rxl[i].name);
+        d->receivers[i].siglev  = e->rxl[i].siglev + e->rxl[i].offset;
+        d->receivers[i].open    = e->rxl[i].open;
+        d->receivers[i].ignored = e->rxl[i].ignore;
+        d->receivers[i].won     = e->rxl[i].won;
+    }
     d->over_open    = e->local_over;
     d->norm_gain_db = e->agc.gain_db;
     d->block_rx = e->block_rx;
@@ -1654,8 +1921,10 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
     e->frame = cfg->audio.period_frames;
     e->frame_ms = e->frame * 1000 / cfg->audio.sample_rate;
     e->rssi = e->rssi_peak = -1;
+    e->active = -1;
+    e->last_src = -1;
     e->preamp  = powf(10.0f, cfg->audio.preamp_db / 20.0f);
-    e->line_on = cfg->radio.cos_line >= 0;
+    e->line_on = cfg->radio.cos_line >= 0 || role->sdr;   /* a web SDR: the squelch is made here */
     if (role->rx && cfg->ctcss.detect) {
         ctcss_params_t cp;
         ctcss_default_params(&cp);
@@ -1674,7 +1943,7 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
         e->ctcss_on = true;
     }
     if (role->rx && cfg->siglev.mode == SIGLEV_NOISE) {
-        noisemeter_init(&e->noise, cfg->audio.sample_rate);
+        noisemeter_init(&e->noise, cfg->audio.sample_rate, cfg->siglev.noise_hz);
         e->noise_on = true;
     }
     if (role->rx && cfg->audio.deemphasis) {

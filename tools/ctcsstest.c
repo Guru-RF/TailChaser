@@ -50,7 +50,7 @@ int main(int argc, char **argv)
     ctcss_t c;
     ctcss_init(&c, &p);
     noisemeter_t nm;
-    noisemeter_init(&nm, rate);
+    noisemeter_init(&nm, rate, 5500);
     double n_open = 0.0, n_closed = 0.0, lo = 0.0;
     long c_open = 0, c_closed = 0;
     bool open = false;

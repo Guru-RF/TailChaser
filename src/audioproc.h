@@ -79,7 +79,7 @@ typedef struct {
     bool  have;
 } noisemeter_t;
 
-void  noisemeter_init(noisemeter_t *m, int sample_rate);
+void  noisemeter_init(noisemeter_t *m, int sample_rate, int above_hz);
 float noisemeter_process(noisemeter_t *m, const int16_t *pcm, int n);     /* the smoothed level */
 /* 0..100 between the level without a signal and the one at full quieting. */
 float noisemeter_siglev(float db, float open_db, float full_db);

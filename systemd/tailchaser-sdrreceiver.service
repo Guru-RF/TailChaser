@@ -1,0 +1,38 @@
+[Unit]
+Description=TailChaser — a receiver on a web SDR
+Documentation=https://github.com/Guru-RF/TailChaser
+After=network-online.target time-sync.target
+Wants=network-online.target
+# It keeps trying (no network yet, ...): no start rate limit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/local/sbin/tailchaser-sdrreceiver -c /etc/tailchaser/sdrreceiver.conf
+Restart=always
+RestartSec=3
+# ...except for a configuration error: restarting does not fix a typo.
+RestartPreventExitStatus=78
+# The main loop reports in every 5 s. If it ever hangs, it is killed and
+# restarted.
+WatchdogSec=30
+TimeoutStopSec=15
+
+# Run unprivileged; bootstrap.sh creates the user. No radio, no sound card.
+User=tailchaser
+
+# Hardening.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=tailchaser
+StateDirectoryMode=0700
+# The admin portal writes the configuration file (which is group-writable;
+# the directory is not).
+ReadWritePaths=-/etc/tailchaser
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

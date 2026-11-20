@@ -105,6 +105,15 @@ void config_defaults(config_t *cfg, const role_t *role)
 
     cfg->receiver.port = 5210;
     cfg->receiver.status_port = 8080;
+    for (int i = 0; i < CFG_MAX_RECEIVERS - 1; i++) {
+        cfg->receiver_more[i].port = 5210;
+        snprintf(cfg->receiver_more[i].codec, sizeof cfg->receiver_more[i].codec, "S16");
+    }
+    cfg->voter.switch_over = true;
+    cfg->voter.margin      = 25.0f;
+    cfg->voter.hold_ms     = 500;
+    cfg->voter.late_ms     = 700;
+    cfg->voter.tx_blank_ms = 3000;
     snprintf(cfg->receiver.codec, sizeof cfg->receiver.codec, "S16");
 
     cfg->siglev.mode    = SIGLEV_RSSI;
@@ -113,6 +122,24 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->siglev.rssi_hi = 100;
     cfg->siglev.noise_open_db = -45.0f;
     cfg->siglev.noise_full_db = -60.0f;
+    cfg->siglev.noise_hz      = 5500;
+    snprintf(cfg->sdr.type, sizeof cfg->sdr.type, "openwebrx");
+    snprintf(cfg->sdr.name, sizeof cfg->sdr.name, "TailChaser");
+    cfg->sdr.bandwidth_hz     = 8000;
+    cfg->sdr.buffer_ms        = 300;
+    cfg->sdr.tls_verify       = true;
+    cfg->sdr.squelch_open_db  = -42.0f;
+    cfg->sdr.squelch_close_db = -36.0f;
+    cfg->sdr.squelch_open_ms  = 120;
+    cfg->sdr.squelch_close_ms = 250;
+    if (role->sdr) {
+        /* no radio here: the audio of a web SDR, de-emphasised there, and
+         * 12 kHz of it at most — the hiss is looked for lower */
+        cfg->siglev.mode          = SIGLEV_NOISE;
+        cfg->siglev.noise_hz      = 3500;
+        cfg->siglev.noise_open_db = -36.0f;
+        cfg->siglev.noise_full_db = -60.0f;
+    }
 
     cfg->repeater.roger_beep     = true;
     cfg->repeater.roger_delay_ms = 200;
@@ -151,6 +178,24 @@ void config_defaults(config_t *cfg, const role_t *role)
     }
 
     snprintf(cfg->log_level, sizeof cfg->log_level, "info");
+}
+
+const receiver_config_t *config_receiver(const config_t *cfg, int i)
+{
+    return i == 0 ? &cfg->receiver : &cfg->receiver_more[i - 1];
+}
+
+/* How many of them are set. A transmitter's first one is its receiver; the
+ * others, and all of a duplex or simplex node's, are there to vote with. */
+int config_receivers(const config_t *cfg, const role_t *role)
+{
+    if (!role->tx)
+        return 0;
+    int n = 0;
+    for (int i = 0; i < CFG_MAX_RECEIVERS; i++)
+        if (config_receiver(cfg, i)->host[0] || (i == 0 && role->remote_rx))
+            n = i + 1;
+    return n;
 }
 
 int config_tg_prio(const config_t *cfg, uint32_t tg)
@@ -355,8 +400,17 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
             INT(u->proto_minor);
         }
         if (!strcmp(key, "rx_id")) { u->rx_id = v[0] ? v[0] : '?'; return 1; }
-    } else if (!strcmp(sec, "receiver")) {
-        receiver_config_t *rc = &cfg->receiver;
+    } else if (!strcmp(sec, "voter")) {
+        voter_config_t *vo = &cfg->voter;
+        if (!strcmp(key, "switch"))      BOOL(vo->switch_over);
+        if (!strcmp(key, "margin"))      FLT(vo->margin);
+        if (!strcmp(key, "hold_ms"))     INT(vo->hold_ms);
+        if (!strcmp(key, "late_ms"))     INT(vo->late_ms);
+        if (!strcmp(key, "tx_blank_ms")) INT(vo->tx_blank_ms);
+    } else if (!strncmp(sec, "receiver", 8) && (sec[8] == '\0' || (sec[8] >= '2' && sec[8] <= '4' && sec[9] == '\0'))) {
+        receiver_config_t *rc = sec[8] ? &cfg->receiver_more[sec[8] - '2'] : &cfg->receiver;
+        if (!strcmp(key, "name"))          STR(rc->name);
+        if (!strcmp(key, "siglev_offset")) FLT(rc->siglev_offset);
         if (!strcmp(key, "status_port")) INT(rc->status_port);
         if (!strcmp(key, "host")) {
             /* host or host:port (not an IPv6 literal with colons) */
@@ -385,6 +439,34 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "rssi_hi")) INT(sl->rssi_hi);
         if (!strcmp(key, "noise_open_db")) FLT(sl->noise_open_db);
         if (!strcmp(key, "noise_full_db")) FLT(sl->noise_full_db);
+        if (!strcmp(key, "noise_hz"))      INT(sl->noise_hz);
+    } else if (!strcmp(sec, "sdr")) {
+        sdr_config_t *sd = &cfg->sdr;
+        if (!strcmp(key, "type"))     STR(sd->type);
+        if (!strcmp(key, "url"))      STR(sd->url);
+        if (!strcmp(key, "profile"))  STR(sd->profile);
+        if (!strcmp(key, "password")) STR(sd->password);
+        if (!strcmp(key, "name"))     STR(sd->name);
+        if (!strcmp(key, "freq")) {
+            if (v[0] == '\0') return 1;            /* not filled in yet: said by the check */
+            char *fe = NULL;
+            double mhz = strtod(v, &fe);
+            if (fe == v || mhz <= 0) return -1;
+            sd->freq_hz = mhz * 1e6;
+            return 1;
+        }
+        if (!strcmp(key, "bandwidth")) {
+            if (!strcasecmp(v, "narrow"))    sd->bandwidth_hz = 8000;
+            else if (!strcasecmp(v, "wide")) sd->bandwidth_hz = 12000;
+            else INT(sd->bandwidth_hz);
+            return 1;
+        }
+        if (!strcmp(key, "buffer_ms"))        INT(sd->buffer_ms);
+        if (!strcmp(key, "tls_verify"))       BOOL(sd->tls_verify);
+        if (!strcmp(key, "squelch_open_db"))  FLT(sd->squelch_open_db);
+        if (!strcmp(key, "squelch_close_db")) FLT(sd->squelch_close_db);
+        if (!strcmp(key, "squelch_open_ms"))  INT(sd->squelch_open_ms);
+        if (!strcmp(key, "squelch_close_ms")) INT(sd->squelch_close_ms);
     } else if (!strcmp(sec, "repeater")) {
         repeater_config_t *rp = &cfg->repeater;
         if (!strcmp(key, "roger_beep"))     BOOL(rp->roger_beep);
@@ -684,6 +766,14 @@ void config_finish(config_t *cfg, const role_t *role)
     radio_config_t *r = &cfg->radio;
     cfg->audio.capture  = role->rx;
     cfg->audio.playback = role->tx;
+    if (role->sdr) {                    /* no radio, no lines, no sound card */
+        r->type = RADIO_NONE;
+        r->cos_line = r->ptt_line = -1;
+        r->freq_rx_hz = cfg->sdr.freq_hz;
+        r->bandwidth = cfg->sdr.bandwidth_hz > 9000;
+        cfg->audio.deemphasis = false;
+        cfg->siglev.mode = SIGLEV_NOISE;
+    }
     if (!role->tx) {                    /* a receiver: the chip is given one frequency */
         r->freq_tx_hz = r->freq_rx_hz;
         r->ctcss_tx   = r->ctcss_rx;
@@ -751,15 +841,21 @@ int config_validate(const config_t *cfg, const role_t *role)
             FAIL("config: [siglev] fixed must be 0..100");
     }
 
-    if (role->remote_rx) {
-        const receiver_config_t *rc = &cfg->receiver;
+    for (int i = 0; i < config_receivers(cfg, role); i++) {
+        const receiver_config_t *rc = config_receiver(cfg, i);
+        char sec[24];
+        snprintf(sec, sizeof sec, i ? "receiver%d" : "receiver", i + 1);
         if (rc->host[0] == '\0')
-            FAIL("config: [receiver] host is required — the address of the tailchaser-receiver");
+            FAIL("config: [%s] host is required — the address of the tailchaser-receiver%s", sec,
+                 i ? " (the sections before the last one in use may not be empty)" : "");
         if (rc->port < 1 || rc->port > 65535)
-            FAIL("config: [receiver] port %d out of range", rc->port);
+            FAIL("config: [%s] port %d out of range", sec, rc->port);
         if (strcmp(rc->codec, "S16") && strcmp(rc->codec, "RAW") && strcmp(rc->codec, "OPUS"))
-            FAIL("config: [receiver] codec must be S16, RAW or OPUS");
+            FAIL("config: [%s] codec must be S16, RAW or OPUS", sec);
     }
+    if (cfg->voter.margin < 1.0f || cfg->voter.margin > 100.0f || cfg->voter.hold_ms < 0 || cfg->voter.hold_ms > 10000 ||
+        cfg->voter.late_ms < 0 || cfg->voter.late_ms > 10000 || cfg->voter.tx_blank_ms < 0 || cfg->voter.tx_blank_ms > 20000)
+        FAIL("config: [voter] margin 1..100, hold_ms and late_ms 0..10000, tx_blank_ms 0..20000");
 
     const radio_config_t *r = &cfg->radio;
     if (r->type == RADIO_SA818) {
@@ -790,7 +886,27 @@ int config_validate(const config_t *cfg, const role_t *role)
             FAIL("config: [siglev] mode = noise needs a sample rate of 16000");
     }
     const ctcss_config_t *ct = &cfg->ctcss;
-    if (role->rx && r->cos_line < 0 && !ct->detect)
+    if (role->sdr) {
+        const sdr_config_t *sd = &cfg->sdr;
+        if (strcasecmp(sd->type, "openwebrx") && strcasecmp(sd->type, "kiwisdr") &&
+            strcasecmp(sd->type, "web888") && strcasecmp(sd->type, "ubersdr"))
+            FAIL("config: [sdr] type must be openwebrx, kiwisdr, web888 or ubersdr");
+        if (sd->url[0] == '\0')
+            FAIL("config: [sdr] url is required — the address of the web SDR");
+        if (sd->freq_hz <= 0)
+            FAIL("config: [sdr] freq is required — the frequency to listen on, in MHz");
+        if (sd->bandwidth_hz < 4000 || sd->bandwidth_hz > 24000)
+            FAIL("config: [sdr] bandwidth must be narrow, wide, or 4000..24000 (Hz)");
+        if (sd->buffer_ms < 60 || sd->buffer_ms > 2000)
+            FAIL("config: [sdr] buffer_ms must be 60..2000");
+        if (sd->squelch_open_db > sd->squelch_close_db)
+            FAIL("config: [sdr] squelch_open_db (the hiss with a signal) must not be above squelch_close_db");
+        if (sd->squelch_open_ms < 0 || sd->squelch_open_ms > 2000 || sd->squelch_close_ms < 0 || sd->squelch_close_ms > 2000)
+            FAIL("config: [sdr] squelch_open_ms / squelch_close_ms must be 0..2000");
+    }
+    if (cfg->siglev.noise_hz < 2000 || cfg->siglev.noise_hz > 7000)
+        FAIL("config: [siglev] noise_hz must be 2000..7000");
+    if (role->rx && !role->sdr && r->cos_line < 0 && !ct->detect)
         FAIL("config: [radio] cos_line is required (the squelch line of the receiver) — "
              "or [ctcss] detect = true, for a receiver that only gives audio");
     if (role->rx && ct->detect) {

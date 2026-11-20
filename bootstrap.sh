@@ -5,7 +5,7 @@
 #
 #   sudo ./bootstrap.sh <role> [mode]
 #
-#   role   simplex | duplex | receiver | transmitter
+#   role   simplex | duplex | receiver | transmitter | sdrreceiver
 #
 # Hardware: Pi + WM8960 Audio HAT + SA818 on /dev/serial0 (as SmartSPOT).
 #
@@ -58,9 +58,9 @@ say()  { printf '\033[38;5;220m%s\033[38;5;255m\n' "$*"; }
 warn() { printf '\033[38;5;208m[warn] %s\033[39m\n' "$*"; }
 die()  { printf '\033[38;5;196m[err] %s\033[39m\n' "$*" >&2; exit 1; }
 
-USAGE="sudo ./bootstrap.sh <simplex|duplex|receiver|transmitter> [full|deps-only|prime-firstboot|upgrade|replace-svxlink|replace-remotetrx|rollback]"
+USAGE="sudo ./bootstrap.sh <simplex|duplex|receiver|transmitter|sdrreceiver> [full|deps-only|prime-firstboot|upgrade|replace-svxlink|replace-remotetrx|rollback]"
 [ "$(id -u)" -eq 0 ] || die "run as root: $USAGE"
-case "$ROLE" in simplex|duplex|receiver|transmitter) ;; *) die "which program? $USAGE";; esac
+case "$ROLE" in simplex|duplex|receiver|transmitter|sdrreceiver) ;; *) die "which program? $USAGE";; esac
 case "$MODE" in full|deps-only|prime-firstboot|upgrade|replace-svxlink|replace-remotetrx|rollback) ;; *) die "unknown mode '$MODE' — $USAGE";; esac
 
 PROG="tailchaser-$ROLE"
@@ -197,7 +197,7 @@ came_up() {
     local since="$1" wait="${LOGIN_WAIT:-60}" i
     sleep 5
     systemctl is-active --quiet "$SERVICE" || return 1
-    [ "$ROLE" != receiver ] || return 0
+    case "$ROLE" in receiver|sdrreceiver) return 0 ;; esac
     say "$PROG is running — waiting for the reflector login (up to $wait s)"
     for i in $(seq 1 "$wait"); do
         if journalctl -u "$SERVICE" --since "$since" --no-pager 2>/dev/null | grep -q 'reflector: logged in as'; then
@@ -352,6 +352,21 @@ fi
 # that was not set up does not start, and does not transmit.
 if [ ! -f "$CONF" ]; then
     run "install -m660 -g '$SERVICE_USER' '$CONF_DIR/$ROLE.conf.example' '$CONF'"
+fi
+
+# A receiver on a web SDR has no hardware: no sound card driver, no UART, no
+# reboot. It can run next to another TailChaser program on the same box.
+if [ "$ROLE" = sdrreceiver ]; then
+    run "systemctl daemon-reload"
+    if "$DESTBIN" -t -c "$CONF" >/dev/null 2>&1; then
+        run "systemctl enable --now $SERVICE"
+        say "$PROG is running:  journalctl -u $PROG -f   or  http://<this box>:8081/"
+    else
+        run "systemctl enable $SERVICE"
+        say "Done. Fill in $CONF (the web SDR, the frequency, the key), check it:"
+        say "  sudo $PROG -t -c $CONF   then   sudo systemctl start $SERVICE"
+    fi
+    exit 0
 fi
 
 if [ "$MODE" = "deps-only" ]; then

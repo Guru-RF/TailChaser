@@ -50,7 +50,7 @@ key. What a small device wants from it:
 
 | Field | |
 |---|---|
-| `role` | `simplex` · `duplex` · `receiver` · `transmitter` |
+| `role` | `simplex` · `duplex` · `receiver` · `transmitter` · `sdrreceiver` |
 | `has.rx` `has.tx` `has.reflector` `has.repeater` | what this program has |
 | `block.rx` `block.tx` | what is blocked |
 | `ident.callsign` | the callsign |
@@ -63,6 +63,10 @@ key. What a small device wants from it:
 | `ctcss.open` `ctcss.level_db` `ctcss.snr_db` | the tone squelch in software, when `ctcss.detect` |
 | `link.connected` `link.tg` `link.home_tg` `link.talker` | the talkgroup link: logged in, talkgroup now, talkgroup at rest, who is talking (`""` = nobody) |
 | `receiver.connected` `receiver.squelch` `receiver.siglev` | a transmit site: its link to the receive site |
+| `voter.active` | who has the over: `-1` nobody, `0` the receiver in the box, `1`… the first, second… of `voter.receivers` |
+| `voter.receivers[]` | the receivers elsewhere this node votes with: `name`, `peer`, `connected`, `squelch`, `ignored` (open, but not listened to: a late copy, or the node's own transmitter), `siglev`, `active`, `overs` |
+| `sdr` | a tailchaser-sdrreceiver only: `type`, `url`, `connected`, `listening`, `state` (in words), `smeter_db` (the SDR's own meter), `buffer_ms`, `rate`, `connects`, `underruns`, `dropped_ms` |
+| `noise.level_db` | the hiss above the speech band, dBFS — what an SDR receiver's squelch and signal strength are made from |
 | `remote_receiver` | a transmit site: the receive site's whole status (the same fields), or `null` when it does not answer |
 | `history[]` | the last squelch openings: `t`, `ms`, `pass`, `like`, `level_db`, `rssi`, `tg`, `sent` |
 | `net_history[]` | the last overs from the talkgroup: `t`, `ms`, `call`, `tg`, `outcome` |

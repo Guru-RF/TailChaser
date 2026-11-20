@@ -68,12 +68,12 @@ void deemph_process(deemph_t *d, int16_t *pcm, int n)
     d->y = y;
 }
 
-void noisemeter_init(noisemeter_t *m, int sample_rate)
+void noisemeter_init(noisemeter_t *m, int sample_rate, int above_hz)
 {
     memset(m, 0, sizeof *m);
-    /* 4th-order Butterworth high-pass at 5.5 kHz */
+    /* 4th-order Butterworth high-pass, at 5.5 kHz for a radio's own audio */
     static const double Q[2] = { 0.54119610, 1.30656296 };
-    double w = 2.0 * 3.14159265358979 * 5500.0 / sample_rate, cs = cos(w);
+    double w = 2.0 * 3.14159265358979 * (double)above_hz / sample_rate, cs = cos(w);
     for (int s = 0; s < 2; s++) {
         double al = sin(w) / (2.0 * Q[s]), a0 = 1.0 + al;
         m->b0[s] = m->b2[s] = (float)((1.0 + cs) / 2.0 / a0);

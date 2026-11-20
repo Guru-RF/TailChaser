@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS */
 #include "audio.h"
 #include "log.h"
+#include "sdr.h"
 #include "util.h"
 #include "wav.h"
 
@@ -41,6 +42,7 @@ struct audio {
     frame_ring_t *txq;
     atomic_bool ptt, tx_flush;
 
+    struct sdr *sdr;            /* the receiver is a web SDR */
     FILE       *rec;            /* bench recording of the transmit side */
     long        rec_frames;
 };
@@ -355,6 +357,30 @@ static void *file_main(void *arg)
     return NULL;
 }
 
+/* ---- a web SDR instead of a sound card ---- */
+
+/* The clock is ours: a frame every 20 ms, of what the SDR sent — or, while
+ * it sends nothing, a frame of silence marked "squelch closed". */
+static void *sdr_feed_main(void *arg)
+{
+    audio_t *a = arg;
+    long period_ns = (long)(1000000000LL * a->period / a->cfg.sample_rate);
+    static const int16_t silence[AUDIO_MAX_FRAME];
+    int16_t pcm[AUDIO_MAX_FRAME];
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    while (!atomic_load(&a->stop)) {
+        if (sdr_take(a->sdr, pcm, a->period) == a->period)
+            enqueue(a, pcm, a->period, -1, false);
+        else
+            enqueue(a, silence, a->period, 0, false);
+        sleep_until(&t, period_ns);
+    }
+    return NULL;
+}
+
+void audio_use_sdr(audio_t *a, struct sdr *sdr) { a->sdr = sdr; }
+
 /* ---- lifecycle ---- */
 
 audio_t *audio_new(const audio_config_t *cfg)
@@ -377,6 +403,12 @@ audio_t *audio_new(const audio_config_t *cfg)
 
 int audio_start(audio_t *a)
 {
+    if (a->sdr) {
+        if (pthread_create(&a->thread, NULL, sdr_feed_main, a) != 0)
+            return -1;
+        a->running = true;
+        return 0;
+    }
     if (a->is_file) {
         if (a->cfg.tx_record[0]) {
             a->rec = fopen(a->cfg.tx_record, "wb");

@@ -85,6 +85,29 @@ status_port   = 8080                       # the receiver's status page: what it
                                            # so one address answers for the whole repeater (0 = not)
 codec         = S16                        # S16 (uncompressed, for a LAN) | OPUS (a slow link)
 
+# More receivers, and voting. Besides the receive site above, up to three
+# others can be listened to: a tailchaser-receiver on another site, or a
+# tailchaser-sdrreceiver — a web SDR (OpenWebRX, KiwiSDR, Web-888, UberSDR)
+# tuned to the repeater's input. The receiver that hears a
+# station first has the over; a better one takes it over; what a late one
+# (a web SDR is a second or two behind) still brings of an over that has ended
+# is not listened to.
+#[receiver2]
+#host         = 127.0.0.1:5211             # a tailchaser-sdrreceiver on this box
+#auth_key     =                            # its [uplink] auth_key
+#name         = web SDR                    # in the log and on the status page
+#siglev_offset = 0                         # added to the signal it reports, before the vote
+#codec        = S16
+#[receiver3] ...
+
+#[voter]
+#switch       = true                       # another receiver takes an over when it hears it better...
+#margin       = 25                         # ...by this much (signal, 0..100)
+#hold_ms      = 500                        # ...for this long
+#late_ms      = 700                        # a receiver still open after the one that had the over
+                                           # closed: its late copy for its delay plus this long;
+                                           # after that it is a station of its own
+
 [radio]
 type          = sa818                      # sa818 = an SA818 module, programmed by this
                                            #   program over its serial port.

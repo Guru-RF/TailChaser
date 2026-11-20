@@ -22,3 +22,5 @@ __pycache__/
 *.csr
 /ctcsstest
 /src/admin_page.h
+/tailchaser-sdrreceiver
+/opuspkt
