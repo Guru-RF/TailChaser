@@ -81,7 +81,7 @@ connection after each (`Connection: close`).
 With `[status] monitor = true` (the status has `"monitor": true` then), two
 websockets carry the audio of the receiver and of what is transmitted:
 binary messages of 16-bit little-endian mono PCM, 16 kHz, about 100 ms each.
-No key: it is the status page's "listen". `404` when it is off, `503` when
+No key: it is the status page's "Listen" card. `404` when it is off, `503` when
 four listeners are there already.
 
 ## On a microcontroller

@@ -474,9 +474,12 @@ normaliser did with each over.
 
 ## Listening in
 
-`[status] monitor = true` puts **listen: input · output** at the foot of the
-status page: the audio of the receiver (all of it, squelch open or not) and
-of what goes to the transmitter, in the browser. For setting a node up and
+`[status] monitor = true` puts a **Listen** card under the signal meter of
+the status page, with **Input** and **Output** under each other: the audio
+of the receiver (all of it, squelch open or not) and of what goes to the
+transmitter, in the browser. Each is off until it is switched on, and has a
+level meter (dBFS, with a peak mark), a spectrum of 0 to 8 kHz and a mute
+button — muted, the meter and the spectrum keep running. For setting a node up and
 for finding out why something sounds the way it does — is the hiss there, is
 the tone, what does the normaliser make of a quiet station, what does an
 announcement sound like before the radio.

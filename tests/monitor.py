@@ -139,7 +139,7 @@ def main():
         time.sleep(0.5)
         page = urllib.request.urlopen(f"http://127.0.0.1:{hp}/", timeout=2).read().decode()
         st = json.load(urllib.request.urlopen(f"http://127.0.0.1:{hp}/status.json", timeout=2))
-        check(st["monitor"] is True and "listen('rx')" in page, "turned on: the status says so, the page offers it — and still answers while somebody listens")
+        check(st["monitor"] is True and "mon('rx')" in page and "mute('tx')" in page and "id=sp_rx" in page, "turned on: the status says so, the page offers it — and still answers while somebody listens")
         for t in th: t.join()
         rx = [v for _, c in out["rx"][1] for v in c]
         tx = [v for _, c in out["tx"][1] for v in c]

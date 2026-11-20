@@ -173,7 +173,7 @@ admin         = true       # http://<this box>:8080/admin — the configuration 
                            # admin until the first login, which has to change it,
                            # and that first login works from a private address only.
 #admin_file   = /var/lib/tailchaser/admin-<role>.conf   # password, keys, blocks
-monitor       = false      # true: "listen: input · output" on the status page — the audio
+monitor       = false      # true: a "Listen" card on the status page (level, spectrum) — the audio
                            # of the receiver and of what is transmitted, in the browser
                            # (ws://<this box>:8080/monitor/rx and /tx). For setting up and
                            # debugging: whoever can open the status page can then listen.

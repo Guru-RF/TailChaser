@@ -60,7 +60,7 @@ mode          = on           # on: only what has a voice on it is passed on | of
 http_port     = 8081         # 8080 is the other TailChaser program's on the same box
 #bind         = 0.0.0.0
 admin         = true
-#monitor      = true         # "listen: input" on the status page: what the web SDR gives, in the
+#monitor      = true         # a "Listen" card on the status page: what the web SDR gives, in the
                              # browser. Whoever can open the status page can then listen.
 
 [log]
