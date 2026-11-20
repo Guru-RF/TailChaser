@@ -120,10 +120,10 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->repeater.roger_n        = 1;
     cfg->repeater.roger_net_beep = true;
     cfg->repeater.net_call          = true;
-    cfg->repeater.net_call_wpm      = 27;
+    cfg->repeater.net_call_wpm      = 34;
     cfg->repeater.net_call_pitch_hz = 800;
     cfg->repeater.net_call_lead_ms  = 600;
-    cfg->repeater.net_call_level_db = -14.0f;
+    cfg->repeater.net_call_level_db = -20.0f;
     snprintf(cfg->repeater.net_call_prefix, sizeof cfg->repeater.net_call_prefix, "ON0");
     cfg->repeater.net_call_other[0] = '\0';     /* the roger beep already says "network" */
     cfg->repeater.net_tones[0]   = 1200;        /* bleep ... */

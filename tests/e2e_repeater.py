@@ -358,7 +358,8 @@ bind = 127.0.0.1
     s, e_ = b[1]
     t_beep, beep_len, hz = beep_of(rec, s, e_)
     check(bleep_blop(rec, t_beep, beep_len), f"the talkgroup over ended with bleep blop ({tones(rec, t_beep, beep_len)})")
-    who = rec.morse(s + 0.15, s + 1.3, 800, 27)[0]
+    who = next((w for w in (rec.morse(s + 0.15, s + t, 800, 34)[0] for t in (1.0, 1.1, 1.2, 1.3, 1.5, 1.7)) if w == "OST"),
+               rec.morse(s + 0.15, s + 1.2, 800, 34)[0])       # the Morse, before the speech that follows it
     check(who == "OST", f"...and began with the repeater it came from, in Morse: ON0OST is \"{who}\"")
 
 

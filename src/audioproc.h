@@ -50,6 +50,11 @@ void  agc_init(agc_t *a, const agc_params_t *p);
 void  agc_begin_over(agc_t *a);
 /* One frame, in place. */
 void  agc_process(agc_t *a, int16_t *pcm, int n);
+/* The same in two steps, for look-ahead: measure the newest frame, apply the
+ * gain to one from a little earlier — the gain is already down when a loud
+ * passage arrives, instead of a moment after. */
+void  agc_measure(agc_t *a, const int16_t *pcm, int n);
+void  agc_apply(agc_t *a, int16_t *pcm, int n);
 /* Averages over the frames measured since agc_begin_over(); false if none. */
 bool  agc_over_stats(const agc_t *a, float *in_db, float *gain_db);
 

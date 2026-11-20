@@ -23,6 +23,7 @@
 #define NET_GAP_MS    500       /* no audio for this long: the over has ended         */
 #define DTMF_IDLE_MS  10000     /* a half-entered command is forgotten after this     */
 #define OPUS_BITRATE  20000
+#define NET_LOOK      5         /* frames the talkgroup normaliser looks ahead: 100 ms */
 #define MAX_DECODE    1920      /* 120 ms: the longest Opus packet                    */
 #define RPTQ_FRAMES   150       /* 3 s of received audio waiting for the transmitter  */
 
@@ -78,6 +79,8 @@ struct engine {
     int      noise_tick;
     agc_t    agc;               /* the normaliser on received audio            */
     agc_t    net_agc;           /* ...and the one on talkgroup audio           */
+    int16_t  net_look[NET_LOOK][AUDIO_MAX_FRAME];   /* ...which looks this far ahead */
+    int      look_head, look_n;
     uint64_t over_since;        /* when the over on the receiver began         */
     float    remote_siglev;     /* transmitter: what its receiver reports      */
     int16_t  racc[AUDIO_MAX_FRAME];     /* audio from the receiver, being framed */
@@ -565,9 +568,10 @@ static void call_begin(engine_t *e)
     e->call_due = false;
     const char *call = e->over.call[0] ? e->over.call : e->talker;
     if (call[0] && !strcasecmp(call, e->call_last))
-        return;                                 /* still the same station */
-    snprintf(e->call_last, sizeof e->call_last, "%s", call);
+        return;                                 /* the repeater that was announced last: not again */
     call_send(e, call);
+    if (e->clip)                                /* it was announced: remembered until another one comes */
+        snprintf(e->call_last, sizeof e->call_last, "%s", call);
 }
 
 static void call_send(engine_t *e, const char *call)
@@ -673,6 +677,7 @@ static void feed(engine_t *e)
 }
 
 static void net_over_end(engine_t *e);
+static void net_out(engine_t *e, int16_t *pcm);
 
 static void tx_tick(engine_t *e)
 {
@@ -823,14 +828,13 @@ static void net_over_begin(engine_t *e)
     e->net_active = true;
     lvl_reset(&e->net_lvl);
     agc_begin_over(&e->net_agc);
+    e->look_head = e->look_n = 0;
     memset(&e->over, 0, sizeof e->over);
     e->over.tg = e->sel_tg;
     snprintf(e->over.call, sizeof e->over.call, "%s", e->talker);
     e->n_net_overs++;
-    /* who it is, in Morse, before they are heard — when it is somebody else
-     * than last time, or the transmitter had dropped in between */
-    if (e->role->repeater && e->cfg->repeater.net_call && e->tx == TX_OFF)
-        e->call_last[0] = '\0';
+    /* which repeater it is, in Morse, before it is heard — when it is another
+     * one than was announced last */
     e->call_due = e->role->repeater && e->cfg->repeater.net_call;
 }
 
@@ -838,6 +842,12 @@ static void net_over_end(engine_t *e)
 {
     if (!e->net_active)
         return;
+    while (e->look_n > 0) {                     /* what the normaliser still held */
+        if (!e->lockout)
+            net_out(e, e->net_look[e->look_head]);
+        e->look_head = (e->look_head + 1) % NET_LOOK;
+        e->look_n--;
+    }
     e->net_active = false;
     e->lockout = false;
     e->acc_n = 0;
@@ -909,8 +919,31 @@ static void net_frame(engine_t *e, int16_t *pcm)
         /* RX_UNSURE: the squelch is open but nothing says it is a voice. Keep
          * the audio; tx_tick() keys or drops it once the gate has decided. */
     }
-    /* one level for everything that is transmitted, wherever it comes from */
-    agc_process(&e->net_agc, pcm, e->frame);
+    /* One level for everything that is transmitted, wherever it comes from.
+     * The level is measured on this frame, the gain goes on the one from
+     * 100 ms ago: a programme that turns loud after a quiet passage does not
+     * come out with a spike. */
+    if (e->cfg->tx.normalize) {
+        agc_measure(&e->net_agc, pcm, e->frame);
+        size_t bytes = sizeof(int16_t) * (size_t)e->frame;
+        if (e->look_n < NET_LOOK) {
+            memcpy(e->net_look[(e->look_head + e->look_n++) % NET_LOOK], pcm, bytes);
+            return;
+        }
+        int16_t old[AUDIO_MAX_FRAME];
+        memcpy(old, e->net_look[e->look_head], bytes);
+        memcpy(e->net_look[e->look_head], pcm, bytes);
+        e->look_head = (e->look_head + 1) % NET_LOOK;
+        net_out(e, old);
+        return;
+    }
+    net_out(e, pcm);
+}
+
+/* A frame of talkgroup audio on its way to the transmitter. */
+static void net_out(engine_t *e, int16_t *pcm)
+{
+    agc_apply(&e->net_agc, pcm, e->frame);
     if (e->tx_gain != 1.0f)
         for (int i = 0; i < e->frame; i++)
             pcm[i] = sat16((float)pcm[i] * e->tx_gain);

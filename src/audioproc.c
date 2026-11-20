@@ -150,6 +150,12 @@ static inline float soft_clip(float v)
 
 void agc_process(agc_t *a, int16_t *pcm, int n)
 {
+    agc_measure(a, pcm, n);
+    agc_apply(a, pcm, n);
+}
+
+void agc_measure(agc_t *a, const int16_t *pcm, int n)
+{
     if (!a->p.enabled || n <= 0)
         return;
 
@@ -192,8 +198,13 @@ void agc_process(agc_t *a, int16_t *pcm, int n)
         a->sum_gain_db += a->gain_db;
         a->measured++;
     }
+}
 
-    /* ---- apply, ramped across the frame so a gain step never clicks ---- */
+/* Apply the gain, ramped across the frame so a gain step never clicks. */
+void agc_apply(agc_t *a, int16_t *pcm, int n)
+{
+    if (!a->p.enabled || n <= 0)
+        return;
     float g0 = a->applied, g1 = powf(10.0f, a->gain_db / 20.0f);
     for (int i = 0; i < n; i++) {
         float g = g0 + (g1 - g0) * (float)(i + 1) / (float)n;
