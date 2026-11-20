@@ -1,0 +1,18 @@
+[Unit]
+Description=TailChaser — make today's spoken announcements (%i)
+Documentation=https://github.com/Guru-RF/TailChaser
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/tailchaser-announce -c /etc/tailchaser/%i.conf
+User=tailchaser
+Nice=10
+# The token is in the configuration; the result goes to /var/lib/tailchaser.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=tailchaser
+StateDirectoryMode=0700

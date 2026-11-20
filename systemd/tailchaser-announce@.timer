@@ -1,0 +1,11 @@
+[Unit]
+Description=TailChaser — spoken announcements for the day (%i)
+
+[Timer]
+# Just after midnight for the new day, and after a boot for what is left of it.
+OnCalendar=*-*-* 00:01:00
+OnBootSec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

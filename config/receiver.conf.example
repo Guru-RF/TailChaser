@@ -1,0 +1,176 @@
+# TailChaser — tailchaser-receiver: the receive site of a split repeater
+#
+# Copy to /etc/tailchaser/receiver.conf and edit. Lines starting with '#' or ';'
+# are comments; a value may be put in "quotes". The four programs
+# (tailchaser-simplex, -duplex, -receiver, -transmitter) read the same kind of
+# file: a section means the same thing in each of them, and a program only has
+# the sections for the parts it has.
+#
+# For a new node you set the lines marked REQUIRED — they are commented out
+# here, and until they are filled in tailchaser-receiver refuses to start: a box
+# that was not set up does not do anything.
+#
+#   [radio]     freq_rx         the input frequency, in MHz
+#
+# Check the file with:  tailchaser-receiver -t -c /etc/tailchaser/receiver.conf
+
+[uplink]
+# The repeater this receiver serves connects HERE: a tailchaser-transmitter
+# ([receiver] host = <this box>), or an SvxLink repeater with a `TYPE=Net`
+# receiver — the link is SvxLink's RemoteTrx protocol.
+listen_port   = 5210
+auth_key      =                            # shared secret; the same on the other side.
+                                           #   Empty = anybody who reaches the port
+                                           #   gets the receiver. Keep it out of git.
+proto_minor   = auto                       # RemoteTrx 2.x as announced: auto | 7 | 8
+rx_id         = ?                          # one character naming this receiver
+
+[siglev]
+# The signal strength reported with every over (0..100) — what a voter picks
+# the best receiver by.
+mode          = rssi                       # rssi = from the SA818 | fixed | noise
+                                           # noise = from the receiver's hiss, for a set
+                                           #   without RSSI output: the stronger the
+                                           #   station, the quieter the noise above the
+                                           #   speech band. Needs audio that is not
+                                           #   low-pass filtered (discriminator output).
+noise_open_db = -45                        # the noise level without a signal (= 0) ...
+noise_full_db = -60                        # ... and with a full-quieting one (= 100).
+                                           #   Both are printed by `ctcsstest` for a
+                                           #   recording; /status.json "noise" shows it live.
+rssi_lo       = 79                         # raw SA818 RSSI that counts as 0 ...
+rssi_hi       = 100                        # ... and as 100. An SA818PRO reads higher:
+                                           #   try 102 and 190.
+fixed         = 50                         # the value for mode = fixed
+
+[radio]
+type          = sa818                      # sa818 = an SA818 module, programmed by this
+                                           #   program over its serial port.
+                                           # none  = a radio that needs no programming:
+                                           #   only its audio and its GPIO lines are used.
+serial_port   = /dev/serial0               # SA818 UART
+#freq_rx      = 431.2000                   # MHz. REQUIRED — the input of the repeater.
+bandwidth     = narrow                     # narrow (12.5 kHz) | wide (25 kHz)
+ctcss_rx      = none                       # none = the receiver opens on any carrier.
+                                           #   A tone in Hz (e.g. 88.5): only on carriers
+                                           #   that carry it.
+
+squelch       = 1                          # 0..8 chip squelch. 1 is fine: the gate below
+                                           #   deals with what a loose squelch lets through.
+volume        = 1                          # 1..8 chip audio level
+filter_emphasis = 0                        # SA818 audio filters: 0 = enabled, 1 = bypassed.
+filter_highpass = 0                        #   With an RX tone, leave the high-pass ON — it
+filter_lowpass  = 0                        #   strips the tone from the audio.
+cos_line      = 12                         # GPIO12 = SA818 SQ pin. none = the radio has no
+cos_active_low= true                       #   squelch line: see [ctcss].
+ptt_line      = 16                         # GPIO16 = SA818 PTT. A receiver never keys it:
+ptt_active_low= true                       #   the line is held inactive. none = not wired.
+
+# A tone squelch in software — for a receiver that has no CTCSS decoder, or
+# that gives nothing but audio (type = none, cos_line = none: a set with its
+# speaker or discriminator output on the sound card). The tone is looked for in
+# the received audio; with a squelch line, both must agree.
+# An SA818 decodes the tone itself ([radio] ctcss_rx): leave this off then.
+[ctcss]
+detect        = false
+#tone         = 88.5       # Hz. REQUIRED when detect = true.
+window_ms     = 300        # how long is listened for the tone. Longer tells
+                           #   neighbouring tones apart better, and is slower.
+delay_ms      = 300        # the audio is held back this long, so that the start
+                           #   of the over is not lost while the tone is being
+                           #   found and the noise after it is not passed on.
+open_snr_db   = 15         # the tone this far above what lies next to it: open
+close_snr_db  = 8          # ...and below this: closed
+min_level_db  = -50        # dBFS — a tone weaker than this is not one. The
+                           #   status page (/status.json, "ctcss") shows the
+                           #   level and the ratio live; `ctcsstest` does the
+                           #   same for a recording.
+open_ms       = 60         # found for this long before the squelch opens
+close_ms      = 160        # gone for this long before it closes
+highpass      = true       # filter the tone out of what is passed on (300 Hz)
+
+# ----------------------------------------------------------------------------
+# The squelch gate: The repeater is only opened when somebody is actually talking.
+#
+#   mode = on        a transmission goes to the repeater once a voice is heard
+#                    on it. Dead carriers, kerchunks and noise bursts stay local.
+#   mode = monitor   everything is sent, as SvxLink does — but every opening is
+#                    analysed and the log / status page say which ones WOULD
+#                    have been blocked.
+#   mode = off       every squelch opening is sent, no analysis.
+# ----------------------------------------------------------------------------
+[gate]
+mode          = on
+lookback_ms   = 500        # Audio kept from BEFORE the decision, so the first word
+                           # is not lost. The first over on an idle channel reaches
+                           # the repeater this much late (at most); later overs are
+                           # not delayed at all.
+hold_s        = 10         # After an over that passed, the channel is "in
+                           # conversation": for this long the next transmission
+                           # passes immediately, unchecked. Set it a little longer
+                           # than the pause people leave between overs.
+min_open_ms   = 100        # ... but only once the squelch has stayed open this
+                           # long: a squelch blip right after an over is not sent.
+voice_deadline_ms = 3000   # The voice must be found within this much carrier. After
+                           # that the opening stays closed until the carrier drops,
+                           # whatever is said later. 0 = no limit.
+carrier_timeout_ms = 0     # 0 = a carrier without a voice NEVER reaches the repeater.
+                           # e.g. 3000 = let any carrier through after 3 s anyway
+                           # (safety net for a very weak station the detector misses).
+bridge_ms     = 300        # Squelch drop-outs shorter than this (mobile flutter) do
+                           # not restart the listening, and a DTMF key held through
+                           # one is one press.
+tail_silence  = true       # An over that was delayed (the first one, by up to
+                           # lookback_ms) still has that much audio to go when the
+                           # talker unkeys. false = send it: the last word belongs
+                           # to the over. true = send silence instead.
+tail_trim_ms  = 0          # Cut this much off the end of every over (squelch crash).
+                           # Costs the same amount of delay on every over.
+
+# Detector tuning — the defaults suit a normally set-up receiver. See the
+# README ("Tuning") before changing them, and use mode = monitor to see the effect.
+min_level_db     = -50     # audio quieter than this (dBFS, 300-3000 Hz) is silence
+voiced_threshold = 0.50    # how periodic a frame must be to count as voice (0..1)
+min_voiced_ms    = 140     # this much voiced sound...
+window_ms        = 1000    # ...within this window = somebody is talking
+tone_purity      = 0.90    # a frame with this share of its energy in ONE spectral
+                           # line is a tone (1750 Hz, whistle), not a voice
+
+[dtmf]
+enabled       = true       # decode DTMF from the radio
+opens_gate    = true       # false = a transmission with nothing but DTMF on it stays
+                           #   local. true = it is passed on: the digits are a
+                           #   command for the repeater.
+muting        = true       # tones inside a spoken over are replaced with silence.
+                           #   A digit is known for one 40 ms after it began, so the
+                           #   audio runs 40 ms behind to catch all of it.
+                           #   false = the tones are heard, and no delay.
+
+[audio]
+alsa_device   = plughw:0   # the sound card the radio is on (WM8960 audio HAT)
+audio_channel = left       # left | right — the codec channel the radio is on
+capture_pct   = 50         # sound card "Capture" level 0..100 — audio from the radio
+                           # As in `amixer set <control> N%`; "keep" = do not touch
+                           # the mixer. Only applied on a WM8960.
+
+# Every station comes in at its own level — its deviation, its microphone, this
+# receiver's sound card. Before the audio goes to the repeater
+# every over is brought to the same speech level, so that all repeaters and
+# nodes on a reflector sound equally loud.
+deemphasis    = false      # true = audio straight from a discriminator: bring the
+                           #   treble down again (6 dB/octave), in software
+normalize     = true
+normalize_target_db   = -20   # the level speech is brought to (dBFS RMS)
+normalize_max_gain_db = 30    # a weak station is amplified by this much at most
+preamp_db     = 0          # fixed software gain before the normaliser
+buffer_periods = 4         # sound card buffer, in 20 ms periods (2..16)
+
+[status]
+http_port     = 8080       # read-only status page (0 = off): http://<this box>:8080/
+bind          = 0.0.0.0
+
+[gpio]
+chip          = auto       # auto-detect the 40-pin header chip, or /dev/gpiochipN
+
+[log]
+level         = info       # error | warn | info | debug

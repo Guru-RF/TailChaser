@@ -1,0 +1,25 @@
+{
+  "nodeLocation": "Testville, hill #2",
+  "hidden": false,
+  "sysop": "ON0TST",
+  "qth": [
+    {
+      "name": "Test QTH",
+      "pos": {
+        "lat": "50.8467",
+        "long": "4.3525",
+        "loc": "JO20eu"
+      },
+      "rx": {
+        "A": {
+          "name": "Rx1",
+        },
+      },
+      "tx": {
+        "A": {
+          "name": "Tx1",
+        }
+      }
+    }
+  ]
+}

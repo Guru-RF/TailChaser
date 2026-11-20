@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 350" role="img" aria-label="TailChaser — repeater software">
+  <rect width="900" height="350" rx="28" fill="#0b0d10"/>
+  <rect x="76" y="78" width="194" height="194" rx="38" fill="#12151a" stroke="#6b5327" stroke-width="3"/>
+  <g fill="none" stroke="#f9b934" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M126 152a52 52 0 0 1 88-22"/><path d="M219 116v22h-22"/>
+    <path d="M220 198a52 52 0 0 1-88 22"/><path d="M127 234v-22h22"/>
+    <path d="M133 175h20l9-14 12 28 10-20 6 6h17" stroke-width="10"/>
+  </g>
+  <text x="308" y="200" font-family="Inter,'Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="104" letter-spacing="-2"><tspan fill="#f5f3ee">Tail</tspan><tspan fill="#f9b934">Chaser</tspan></text>
+  <text x="312" y="238" font-family="ui-monospace,'SF Mono',Menlo,Consolas,monospace" font-size="24" letter-spacing="6" fill="#b9bcc4">REPEATER SOFTWARE</text>
+</svg>

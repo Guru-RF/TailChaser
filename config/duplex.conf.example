@@ -1,0 +1,321 @@
+# TailChaser — tailchaser-duplex: a repeater: receiver and transmitter in one box
+#
+# Copy to /etc/tailchaser/duplex.conf and edit. Lines starting with '#' or ';'
+# are comments; a value may be put in "quotes". The four programs
+# (tailchaser-simplex, -duplex, -receiver, -transmitter) read the same kind of
+# file: a section means the same thing in each of them, and a program only has
+# the sections for the parts it has.
+#
+# For a new node you set the lines marked REQUIRED — they are commented out
+# here, and until they are filled in tailchaser-duplex refuses to start: a box
+# that was not set up does not transmit.
+#
+#   [reflector] domain / host   the SvxReflector / TailchaserReflector to connect to
+#   [reflector] callsign        the node's login there (e.g. ON0XXX)
+#   [reflector] default_tg      its talkgroup
+#   [radio]     freq_rx/freq_tx the input and the output frequency, in MHz
+#   [ident]     callsign        what is sent in Morse on the hour
+#
+# Check the file with:  tailchaser-duplex -t -c /etc/tailchaser/duplex.conf
+
+[reflector]
+# Where the reflector is — an SvxReflector or a TailchaserReflector, they speak
+# the same protocol. Either a DNS domain that publishes it
+# (_svxreflector._tcp.<domain>, SvxLink's DNS_DOMAIN) ...
+#domain       = be.svx.link                # REQUIRED: this, or host
+# ... or its address: host[:port], or several, tried in order (SvxLink's HOSTS).
+#host         = reflector.example.org:5300
+port          = 5300                       # for a host given without a port
+#callsign     = ON0XXX                     # REQUIRED. The login on the reflector.
+
+# How the node proves who it is:
+#   certificate (the default)  On its first connection the node makes a key and
+#                              sends a signing request; the reflector's sysop
+#                              signs it, and from then on the node logs in with
+#                              the certificate. Renewals are automatic.
+#   password                   For reflectors that still use one: set auth_key.
+#auth_key     =                            # Keep it out of git.
+email         =                            # contact address, goes into the certificate request
+pki_dir       = /var/lib/tailchaser/pki    # key + certificate. Back this directory up.
+
+#default_tg   = 1745                       # REQUIRED in practice: the node's home talkgroup
+monitor_tgs   =                            # others to listen on, SvxLink notation: 1745++, 8+, 9
+                                           #   (the + are the priority). When somebody
+                                           #   talks on one and the node is idle, it
+                                           #   switches there and transmits them.
+tg_select_timeout_s = 30                   # back to the home talkgroup after this much silence
+udp_heartbeat_s = 10                       # keeps the NAT/firewall hole for the audio open
+
+# Shown on the reflector's dashboards. All optional.
+location      =                            # "Brussels"
+sysop         =                            # defaults to the callsign
+qth_name      =
+latitude      =                            # 50.8467
+longitude     =                            # 4.3525
+locator       =                            # JO20eu
+
+# More of the station for those dashboards and maps. The frequencies and the
+# tones are taken from [radio] and [ctcss]; say them here when the program
+# does not know them (type = none, or the receiver is at another site).
+[location]
+#freq_rx      = 431.2000                   # MHz
+#freq_tx      = 438.8000
+#ctcss_rx     = 88.5                       # Hz | none
+#ctcss_tx     = 88.5
+#power_w      = 10                         # transmitter output
+#antenna      = X300 7 dBi
+#antenna_height_m = 25                     # above ground
+#antenna_dir  = omni                       # or degrees
+hidden        = false                      # true = ask the dashboards not to list the node
+tone_to_talkgroup = true                   # tell which CTCSS tone opens the home talkgroup
+
+[radio]
+type          = sa818                      # sa818 = an SA818 module, programmed by this
+                                           #   program over its serial port.
+                                           # none  = a radio that needs no programming:
+                                           #   only its audio and its GPIO lines are used.
+serial_port   = /dev/serial0               # SA818 UART
+#freq_rx      = 431.2000                   # MHz. REQUIRED: the input of the repeater ...
+#freq_tx      = 438.8000                   # ... and its output (same band). No defaults.
+bandwidth     = narrow                     # narrow (12.5 kHz) | wide (25 kHz)
+
+# CTCSS, separately for each direction. The SA818 does both.
+ctcss_rx      = none                       # none = the receiver opens on any carrier.
+                                           #   A tone in Hz (e.g. 88.5): only on carriers
+                                           #   that carry it.
+ctcss_tx      = none                       # none = nothing is added to the transmission.
+                                           #   A tone in Hz: sent along, for listeners
+                                           #   who run tone squelch.
+#ctcss        = 88.5                       # shorthand: the same tone both ways
+
+squelch       = 1                          # 0..8 chip squelch. 1 is fine: the gate below
+                                           #   deals with what a loose squelch lets through.
+volume        = 1                          # 1..8 chip audio level
+filter_emphasis = 0                        # SA818 audio filters: 0 = enabled, 1 = bypassed.
+filter_highpass = 0                        #   With an RX tone, leave the high-pass ON — it
+filter_lowpass  = 0                        #   strips the tone from the audio.
+cos_line      = 12                         # GPIO12 = SA818 SQ pin. none = the radio has no
+cos_active_low= true                       #   squelch line: see [ctcss].
+ptt_line      = 16                         # GPIO16 = SA818 PTT
+ptt_active_low= true
+pa_line       = none                       # A GPIO that switches a power amplifier: taken
+pa_active_low = true                       #   just before PTT, released just after it.
+refresh_after_tx = false                   # true = give the SA818 its filter settings again
+                                           #   after every transmission (a module next to a
+                                           #   PA can lose them).
+
+# The signal meter on the status page.
+[siglev]
+mode          = rssi                       # rssi = from the SA818 | noise
+                                           # noise = from the receiver's hiss, for a set
+                                           #   without RSSI output: the stronger the
+                                           #   station, the quieter the noise above the
+                                           #   speech band. Needs audio that is not
+                                           #   low-pass filtered (discriminator output).
+noise_open_db = -45                        # the noise level without a signal (= 0) ...
+noise_full_db = -60                        # ... and with a full-quieting one (= 100).
+                                           #   Both are printed by `ctcsstest` for a
+                                           #   recording; /status.json "noise" shows it live.
+
+# A tone squelch in software — for a receiver that has no CTCSS decoder, or
+# that gives nothing but audio (type = none, cos_line = none: a set with its
+# speaker or discriminator output on the sound card). The tone is looked for in
+# the received audio; with a squelch line, both must agree.
+# An SA818 decodes the tone itself ([radio] ctcss_rx): leave this off then.
+[ctcss]
+detect        = false
+#tone         = 88.5       # Hz. REQUIRED when detect = true.
+window_ms     = 300        # how long is listened for the tone. Longer tells
+                           #   neighbouring tones apart better, and is slower.
+delay_ms      = 300        # the audio is held back this long, so that the start
+                           #   of the over is not lost while the tone is being
+                           #   found and the noise after it is not passed on.
+open_snr_db   = 15         # the tone this far above what lies next to it: open
+close_snr_db  = 8          # ...and below this: closed
+min_level_db  = -50        # dBFS — a tone weaker than this is not one. The
+                           #   status page (/status.json, "ctcss") shows the
+                           #   level and the ratio live; `ctcsstest` does the
+                           #   same for a recording.
+open_ms       = 60         # found for this long before the squelch opens
+close_ms      = 160        # gone for this long before it closes
+highpass      = true       # filter the tone out of what is passed on (300 Hz)
+
+[tx]
+delay_ms      = 300        # Carrier first, audio this much later: time for the listeners'
+                           # squelch (and tone decoder) to open. Nothing is lost to it —
+                           # the audio waits.
+hang_ms       = 3000       # The carrier stays up this long after the last audio, so the
+                           # next station does not have to open the repeater again.
+timeout_s     = 360        # Longest the transmitter stays busy without a pause. After it
+                           # the carrier drops and stays down until whoever was talking
+                           # has stopped. 0 = no limit.
+gain_db       = 0          # software gain on talkgroup audio before it is transmitted
+level_db      = 0          # software gain on everything that is transmitted — speech,
+                           # beeps, Morse, test tones (SvxLink: MASTER_GAIN)
+duck_db       = 6          # Morse and announcements are this much quieter while
+                           # somebody is talking, and come back up when they stop
+preemphasis   = false      # true = 6 dB/octave pre-emphasis in software, for a radio whose
+                           # own pre-emphasis is bypassed (filter_emphasis = 1)
+limit_db      = 0          # Ceiling on what goes to the modulator, in dBFS (e.g. -3).
+                           # 0 = no limiter.
+test_s        = 10         # A test transmission, for setting the deviation:
+test_level_db = -20        #   sudo systemctl kill -s USR1 tailchaser-<role>
+                           # sends 1000 Hz, then 700 + 1900 Hz, half of test_s each,
+                           # at this peak level — as soon as the transmitter is free.
+
+[repeater]
+roger_beep    = true       # "blop" after every over that was repeated: the repeater
+                           # heard you, the next one can go
+roger_tones   = 800        # its pitch in Hz — or several, one after the other
+roger_net_beep = true      # "bleep blop" after an over from the talkgroup: that one
+roger_net_tones = 1200, 800  # came in over the network
+roger_delay_ms = 200       # this long after the over
+net_call      = true       # Which repeater is coming from the talkgroup, in fast
+                           # Morse before it is heard: ON0OST by the letters after
+net_call_prefix = ON0      # this prefix — "OST". Other stations get none (the
+net_call_wpm  = 27         # roger beep says "network"). Sent when another repeater
+net_call_pitch_hz = 800    # starts, not every over; the speech waits meanwhile.
+roger_ms      = 70         # each tone
+roger_gap_ms  = 20         # silence between them
+roger_level_db = -18       # dBFS
+
+[ident]
+#callsign     = ON0XXX     # REQUIRED (unless interval_min = 0)
+interval_min  = 60         # On the clock: 60 = every hour on the hour, 30 = also at half
+                           # past, 10 = every ten minutes. 0 = never.
+wpm           = 24         # Morse speed
+pitch_hz      = 600        # tone
+level_db      = -12        # dBFS
+
+# A spoken announcement on the clock: every interval_min, except when the Morse
+# identification is due (with both at their defaults: at :15, :30 and :45).
+# The daemon plays <dir>/HHMM.wav; `tailchaser-announce` makes those files once
+# a day, from the text below, with an online voice service:
+#   sudo systemctl enable --now tailchaser-announce@duplex.timer
+#   sudo -u tailchaser tailchaser-announce -c /etc/tailchaser/duplex.conf --dry-run
+[announce]
+enabled       = false
+interval_min  = 15
+with_ident    = false      # true = also when the Morse is due: the Morse first, then
+                           #   the announcement, in one transmission
+busy          = wait       # wait = only in a quiet moment; when there is none within
+                           #   wait_s, the announcement is left out.
+                           # duck = start anyway, [tx] duck_db quieter, under whoever
+                           #   is talking. Either way: when somebody starts talking
+                           #   while it plays, it goes under them.
+wait_s        = 120
+level_db      = -16        # the speech is brought to this level (dBFS RMS)
+max_s         = 30         # never longer than this
+dir           = /var/lib/tailchaser/announce
+
+# For tailchaser-announce. %CALL = the callsign, spelled; %TIME; %DATE.
+# Several text lines take turns through the day.
+#text         = "This is %CALL. It is %TIME."
+#text_file    = /etc/tailchaser/announce.txt     # one text per line
+#call_spoken  = Oscar November zero X-ray X-ray X-ray    # instead of the letters
+time_format   = %H:%M      # strftime
+date_format   = %A %-d %B %Y
+#locale       = nl_BE.UTF-8   # the language of the day and month names
+provider      = openai     # openai (and services with the same API) | elevenlabs
+#url          =            # another endpoint than the provider's own
+#token        =            # the API key. Keep this file out of git.
+#model        = gpt-4o-mini-tts
+#voice        = alloy      # elevenlabs: the voice id
+#style        = Calm and clear, like a radio announcer.   # openai: how to say it
+
+# ----------------------------------------------------------------------------
+# The squelch gate: Only send to the talkgroup when somebody is actually talking.
+#
+#   mode = on        a transmission goes to the talkgroup once a voice is heard
+#                    on it. Dead carriers, kerchunks and noise bursts stay local.
+#   mode = monitor   everything is sent, as SvxLink does — but every opening is
+#                    analysed and the log / status page say which ones WOULD
+#                    have been blocked.
+#   mode = off       every squelch opening is sent, no analysis.
+# ----------------------------------------------------------------------------
+[gate]
+mode          = on
+lookback_ms   = 500        # Audio kept from BEFORE the decision, so the first word
+                           # is not lost. The first over on an idle channel reaches
+                           # the talkgroup this much late (at most); later overs are
+                           # not delayed at all.
+hold_s        = 10         # After an over that passed, the channel is "in
+                           # conversation": for this long the next transmission
+                           # passes immediately, unchecked. Set it a little longer
+                           # than the pause people leave between overs.
+min_open_ms   = 100        # ... but only once the squelch has stayed open this
+                           # long: a squelch blip right after an over is not sent.
+voice_deadline_ms = 3000   # The voice must be found within this much carrier. After
+                           # that the opening stays closed until the carrier drops,
+                           # whatever is said later. 0 = no limit.
+carrier_timeout_ms = 0     # 0 = a carrier without a voice NEVER reaches the talkgroup.
+                           # e.g. 3000 = let any carrier through after 3 s anyway
+                           # (safety net for a very weak station the detector misses).
+bridge_ms     = 300        # Squelch drop-outs shorter than this (mobile flutter) do
+                           # not restart the listening, and a DTMF key held through
+                           # one is one press.
+tail_silence  = false      # An over that was delayed (the first one, by up to
+                           # lookback_ms) still has that much audio to go when the
+                           # talker unkeys. false = send it: the last word belongs
+                           # to the over. true = send silence instead.
+tail_trim_ms  = 0          # Cut this much off the end of every over (squelch crash).
+                           # Costs the same amount of delay on every over.
+
+# Detector tuning — the defaults suit a normally set-up receiver. See the
+# README ("Tuning") before changing them, and use mode = monitor to see the effect.
+min_level_db     = -50     # audio quieter than this (dBFS, 300-3000 Hz) is silence
+voiced_threshold = 0.50    # how periodic a frame must be to count as voice (0..1)
+min_voiced_ms    = 100     # this much voiced sound...
+window_ms        = 1000    # ...within this window = somebody is talking
+tone_purity      = 0.90    # a frame with this share of its energy in ONE spectral
+                           # line is a tone (1750 Hz, whistle), not a voice
+
+[dtmf]
+enabled       = true       # decode DTMF from the radio
+commands      = true       # <tg_prefix><talkgroup>#  selects a talkgroup
+                           # <tg_prefix>0#            back to the home talkgroup
+                           # <tg_prefix>#             the talkgroup used before
+tg_prefix     = 91         # 91 = as on an SvxLink node: 911745# selects talkgroup 1745
+ack           = true       # answer a command with the talkgroup number in Morse
+opens_gate    = false      # false = a transmission with nothing but DTMF on it stays
+                           #   local. true = it is passed on: the digits are a
+                           #   command for the node.
+muting        = true       # tones inside a spoken over are replaced with silence.
+                           #   A digit is known for one 40 ms after it began, so the
+                           #   audio runs 40 ms behind to catch all of it.
+                           #   false = the tones are heard, and no delay.
+
+[audio]
+alsa_device   = plughw:0   # the sound card the radio is on (WM8960 audio HAT)
+audio_channel = left       # left | right — the codec channel the radio is on
+#tx_channel   = left       # if the transmit audio is on the other channel
+playback_pct  = 77         # sound card "Headphone" level 0..100 — audio to the radio.
+                           #   This sets the deviation.
+capture_pct   = 50         # sound card "Capture" level 0..100 — audio from the radio
+                           # As in `amixer set <control> N%`; "keep" = do not touch
+                           # the mixer. Only applied on a WM8960.
+
+# Every station comes in at its own level — its deviation, its microphone, this
+# receiver's sound card. Before the audio goes to the talkgroup and the transmitter
+# every over is brought to the same speech level, so that all repeaters and
+# nodes on a reflector sound equally loud.
+deemphasis    = false      # true = audio straight from a discriminator: bring the
+                           #   treble down again (6 dB/octave), in software
+normalize     = true
+normalize_target_db   = -20   # the level speech is brought to (dBFS RMS)
+normalize_max_gain_db = 30    # a weak station is amplified by this much at most
+preamp_db     = 0          # fixed software gain before the normaliser
+buffer_periods = 4         # sound card buffer, in 20 ms periods (2..16)
+
+[status]
+http_port     = 8080       # read-only status page (0 = off): http://<this box>:8080/
+bind          = 0.0.0.0
+rssi_lo       = 79         # S-meter on the page: the raw SA818 RSSI shown as S1 ...
+rssi_hi       = 100        # ... and as S9+40 (uncalibrated: compare with a known signal).
+                           #   An SA818PRO reads higher: try 102 and 190.
+
+[gpio]
+chip          = auto       # auto-detect the 40-pin header chip, or /dev/gpiochipN
+
+[log]
+level         = info       # error | warn | info | debug

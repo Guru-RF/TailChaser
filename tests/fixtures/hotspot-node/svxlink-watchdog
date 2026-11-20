@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# restarts SvxLink when the PTT line stays keyed
+GPIO=16
+SERVICE="svxlink"
+LOW_TIME_REQUIRED=360   # 6 minutes
+CHECK_INTERVAL=1        # seconds

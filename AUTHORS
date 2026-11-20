@@ -1,0 +1,23 @@
+TailChaser — authors and participants
+=====================================
+
+TailChaser is free software under the GNU General Public License, version 3
+or (at your option) any later version — see LICENSE. Whoever passes it on,
+changed or not, passes on the source and this list with it.
+
+Author
+------
+Joeri Van Dooren (ON6URE) — RF.Guru
+
+Participants
+------------
+The sysops and stations of ON0ORA and ON0DEN, who ran it on the air first,
+keyed up on request and told us how it sounded.
+
+Add your name here with your first contribution.
+
+Built on the work of others
+---------------------------
+SvxLink / SvxReflector by Tobias Blomberg (SM0SVX) and contributors: TailChaser
+speaks their reflector and RemoteTrx protocols. No SvxLink code is included.
+Opus (Xiph.Org), OpenSSL, ALSA, libgpiod.

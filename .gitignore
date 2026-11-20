@@ -1,0 +1,23 @@
+# Build artifacts
+*.o
+*.d
+/tailchaser-simplex
+/tailchaser-duplex
+/tailchaser-receiver
+/tailchaser-transmitter
+/vadtest
+/gatetest
+/dtmftest
+/agctest
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+__pycache__/
+
+# Local config and key material. Never commit a real one.
+/config/*.conf
+*.key
+*.crt
+*.csr
+/ctcsstest

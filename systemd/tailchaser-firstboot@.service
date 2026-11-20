@@ -1,0 +1,17 @@
+[Unit]
+Description=TailChaser first-boot self-install (tailchaser-%i)
+Documentation=https://github.com/Guru-RF/TailChaser
+After=network-online.target
+Wants=network-online.target
+# Run only until the bootstrap has completed once (firstboot.sh writes this).
+ConditionPathExists=!/var/lib/tailchaser/.firstboot-done
+
+[Service]
+Type=oneshot
+ExecStart=/opt/tailchaser/firstboot.sh %i
+RemainAfterExit=no
+# A first install on a Pi Zero 2W (apt + WM8960 DKMS build + compile) is slow.
+TimeoutStartSec=2400
+
+[Install]
+WantedBy=multi-user.target

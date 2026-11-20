@@ -1,0 +1,49 @@
+[Unit]
+Description=TailChaser — receive site of a split repeater
+Documentation=https://github.com/Guru-RF/TailChaser
+After=network-online.target sound.target time-sync.target wm8960-soundcard.service
+Wants=network-online.target
+# A repeater keeps trying (sound card not up yet, ...): no start rate limit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/local/sbin/tailchaser-receiver -c /etc/tailchaser/receiver.conf
+# A receiver never keys its radio, but it holds the module's PTT pin inactive:
+# make sure it is left that way, whatever happened to the daemon.
+ExecStopPost=-/usr/local/sbin/tailchaser-receiver -u -c /etc/tailchaser/receiver.conf
+Restart=always
+RestartSec=3
+# ...except for a configuration error: restarting does not fix a typo.
+RestartPreventExitStatus=78
+# The main loop reports in every 5 s. If it ever hangs, it is killed and
+# restarted — and unkeyed in between, by the line above.
+WatchdogSec=30
+TimeoutStopSec=15
+
+# Run unprivileged; bootstrap.sh creates the user and its device groups.
+User=tailchaser
+SupplementaryGroups=audio gpio dialout
+
+# The audio thread asks for SCHED_FIFO; allow it without running as root.
+LimitRTPRIO=20
+LimitMEMLOCK=infinity
+AmbientCapabilities=CAP_SYS_NICE
+
+# Hardening.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=tailchaser
+StateDirectoryMode=0700
+DeviceAllow=char-alsa rw
+DeviceAllow=char-gpiochip rw
+# /dev/serial0 is a symlink; allow the real UART nodes it can resolve to.
+DeviceAllow=/dev/ttyAMA0 rw
+DeviceAllow=/dev/ttyS0 rw
+DeviceAllow=/dev/serial0 rw
+
+[Install]
+WantedBy=multi-user.target
