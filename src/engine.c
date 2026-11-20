@@ -98,6 +98,8 @@ struct engine {
     uint64_t ann_until;                 /* ...until then, after that it is skipped    */
     unsigned long n_announce;
     float    duck, duck_to;             /* gain on Morse/announcement: now, with audio */
+    bool     pa_pending;                /* the amplifier is still to be keyed (pa_delay_ms) */
+    uint64_t pa_at;
     bool     calltest_due;              /* the Morse of our own call was asked for (SIGRTMIN+1) */
     bool     test_due;                  /* a test transmission was asked for (SIGUSR1) */
     uint64_t beep_at;
@@ -236,12 +238,24 @@ static void ptt(engine_t *e, bool on)
 {
     /* The amplifier line follows the PTT: up before the exciter is keyed, down
      * after it has been released. */
+    /* With pa_delay_ms it is the other way round: the exciter first, the
+     * amplifier that much later (tx_tick), and off again before the exciter. */
     bool pa = e->gpio && e->cfg->radio.pa_line >= 0;
+    int  pa_delay = e->cfg->radio.pa_delay_ms;
     bool pa_bad = false;
-    if (pa && on)
-        pa_bad = gpio_ptt_set(e->gpio, 1, true) != 0;
+    e->pa_pending = false;
+    if (pa && on) {
+        if (pa_delay > 0) {
+            e->pa_pending = true;
+            e->pa_at = e->t_ms + (uint64_t)pa_delay;
+        } else {
+            pa_bad = gpio_ptt_set(e->gpio, 1, true) != 0;
+        }
+    }
+    if (pa && !on && pa_delay > 0)
+        pa_bad = gpio_ptt_set(e->gpio, 1, false) != 0;
     bool ptt_bad = e->gpio && gpio_ptt_set(e->gpio, 0, on) != 0;
-    if (pa && !on)
+    if (pa && !on && pa_delay == 0)
         pa_bad = gpio_ptt_set(e->gpio, 1, false) != 0;
     if (ptt_bad || pa_bad) {
         /* A PTT line that no longer does what it is told is the one thing
@@ -614,6 +628,14 @@ static void net_over_end(engine_t *e);
 static void tx_tick(engine_t *e)
 {
     const tx_config_t *t = &e->cfg->tx;
+
+    if (e->pa_pending && e->t_ms >= e->pa_at) {         /* the amplifier follows the exciter */
+        e->pa_pending = false;
+        if (e->gpio && gpio_ptt_set(e->gpio, 1, true) != 0) {
+            log_error("tx: cannot key the PA line");
+            e->ptt_failed = true;
+        }
+    }
 
     /* ---- time-out: a transmission may not go on for ever ---- */
     /* A simplex node counts the carrier. A repeater's carrier stays up through

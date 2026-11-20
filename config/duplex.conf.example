@@ -103,6 +103,9 @@ ptt_line      = 16                         # GPIO16 = SA818 PTT
 ptt_active_low= true
 pa_line       = none                       # A GPIO that switches a power amplifier: taken
 pa_active_low = true                       #   just before PTT, released just after it.
+pa_delay_ms   = 0                          #   0 = as above. More = the amplifier this long
+                                           #   AFTER the PTT (and off before it): a sequencer.
+                                           #   Keep [tx] delay_ms at least as long.
 refresh_after_tx = false                   # true = give the SA818 its filter settings again
                                            #   after every transmission (a module next to a
                                            #   PA can lose them).

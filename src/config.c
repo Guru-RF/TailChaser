@@ -448,6 +448,7 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
             INT(r->pa_line);
         }
         if (!strcmp(key, "pa_active_low"))    BOOL(r->pa_active_low);
+        if (!strcmp(key, "pa_delay_ms"))      INT(r->pa_delay_ms);
         if (!strcmp(key, "refresh_after_tx")) BOOL(r->refresh_after_tx);
         if (!strcmp(key, "serial_port"))    STR(r->serial_port);
         if (!strcmp(key, "cos_line")) {
@@ -798,6 +799,11 @@ int config_validate(const config_t *cfg, const role_t *role)
     }
     if (role->tx && r->ptt_line < 0)
         FAIL("config: [radio] ptt_line is required (the PTT line of the transmitter)");
+    if (r->pa_delay_ms < 0 || r->pa_delay_ms > 5000)
+        FAIL("config: [radio] pa_delay_ms must be 0..5000");
+    if (r->pa_line >= 0 && r->pa_delay_ms > cfg->tx.delay_ms)
+        log_warn("config: [radio] pa_delay_ms (%d) is longer than [tx] delay_ms (%d) — audio starts "
+                 "before the amplifier is on", r->pa_delay_ms, cfg->tx.delay_ms);
     if (r->pa_line >= 0 && (r->pa_line == r->ptt_line || r->pa_line == r->cos_line))
         FAIL("config: [radio] pa_line must be a line of its own");
 

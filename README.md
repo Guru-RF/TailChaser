@@ -294,15 +294,18 @@ live under `"ctcss"`; `./ctcsstest -f 79.7 recording.wav` does the same for a
 16 kHz recording of the receiver. The gate still decides whether what came
 through is a voice.
 
-### Morse on the hour, a voice in between
+### Morse on the clock, and a voice
 
-The callsign goes out in Morse on the clock (`[ident]`). On a repeater it is
+The callsign goes out in Morse on the clock (`[ident] interval_min`: 60, 15,
+whatever the licence asks). On a repeater it is
 sent over whatever is on the air; while somebody is talking it is `[tx]
 duck_db` (6 dB) quieter, and it comes back up when they stop.
 
-Between the identifications the node can say something: `[announce]`, every
-15 minutes by default and not when the Morse is due — unless `with_ident =
-true`, which puts it right after the Morse. The text is yours, with
+The node can also say something: `[announce]`, every `interval_min` (15 by
+default) and not when the Morse is due — unless `with_ident = true`, which
+puts it right after the Morse. The two clocks are independent: Morse every
+quarter and the voice on the hour after it is `[ident] interval_min = 15`,
+`[announce] interval_min = 60`, `with_ident = true`. The text is yours, with
 `%CALL`, `%TIME` and `%DATE` in it; `tailchaser-announce` turns it into speech
 once a day with an online voice service (an OpenAI-compatible one, or
 ElevenLabs — `provider`, `token`, `voice`) and the daemon plays the file for
@@ -327,8 +330,21 @@ With `busy = wait` an announcement that finds the frequency in use waits up to
 `wait_s` for the carrier to drop and is left out otherwise. When a station
 keys up while it plays, it goes under them like the Morse does.
 
-A pause in an announcement is `%PAUSE` (`pause_ms`, 1000): `This is %CALL
-%PAUSE it's %TIME`. And `sudo systemctl kill -s RTMIN+1 tailchaser-<role>`
+How it is said:
+
+| `[announce]` | |
+|---|---|
+| `call_spelling = phonetic` | `%CALL` as "Oscar, November, Zero, …" instead of letter by letter |
+| `time_style = spoken` | `%TIME` as "quarter past two" instead of 14:15 (English) |
+| `%PAUSE` in the text, `pause_ms` | a pause: `This is %CALL %PAUSE it's %TIME`. The parts are spoken separately and joined, so it works with every voice service |
+| `speed` | slower or faster speech (ElevenLabs 0.7–1.2, e.g. `0.8`) |
+| `voice`, `model`, `style`, `url` | which voice; for ElevenLabs `voice` is the voice id |
+
+Every different phrase is asked for once and kept, so a text with the time in
+it costs one day of requests and nothing after that. The token is sent only
+to an `https://` address.
+
+And `sudo systemctl kill -s RTMIN+1 tailchaser-<role>`
 sends the fast Morse other repeaters put before this one ("ORA" for ON0ORA).
 
 To hear an announcement without waiting for the quarter:
@@ -352,6 +368,21 @@ and sends a signing request; the reflector's sysop signs it and from then on
 the node logs in by itself, renewing in time. Key and certificate live in
 `/var/lib/tailchaser/pki` — back that directory up. For a reflector that still
 uses passwords: `[reflector] auth_key`.
+
+The reflector is checked too. Its CA bundle is kept from the first connection
+(`ca-bundle.crt` in the same directory) and from then on the reflector has to
+show a certificate from that CA, made out to its name (`verify_host`); a
+different bundle that is offered later is put aside as `ca-bundle.crt.offered`,
+not believed. A node that holds a certificate refuses to fall back to the old
+protocol without encryption. When the reflector really gets a new CA, the log
+says which file to move.
+
+### An amplifier
+
+`[radio] pa_line` is a second output for a power amplifier. It goes up just
+before the PTT and down just after it; with `pa_delay_ms` it is a sequencer
+instead — the exciter first, the amplifier that many milliseconds later, and
+off again before the exciter. Keep `[tx] delay_ms` at least as long.
 
 ## Upgrading and replacing SvxLink
 
@@ -392,6 +423,14 @@ tx: off after 13.6 s
 normaliser did with each over.
 
 ## Tuning
+
+Three signals put something on the air on request, each in a quiet moment:
+
+| Signal | Sends | Command |
+|---|---|---|
+| `USR1` | test tones: 1000 Hz, then 700 + 1900 Hz | `sudo systemctl kill -s USR1 tailchaser-<role>` |
+| `USR2` | the next spoken announcement, now | `sudo systemctl kill -s USR2 tailchaser-<role>` |
+| `RTMIN+1` | this repeater's call in fast Morse, as other repeaters send it ("ORA") | `sudo systemctl kill -s RTMIN+1 tailchaser-<role>` |
 
 - **A test transmission**: `sudo systemctl kill -s USR1 tailchaser-<role>` sends
   1000 Hz and then a two-tone (700 + 1900 Hz) for `[tx] test_s` seconds at
@@ -443,7 +482,9 @@ src/audio.c mixer.c sa818.c serial_worker.c gpio*.c      the hardware
 src/status.c       status page
 config/            one example per program
 systemd/           one unit per program
-tools/             offline test tools, migration scripts
+tools/             offline test tools, migration scripts, sdrmon.py (web SDR
+                   comparison), tailchaser-announce (the spoken announcements)
+docs/              DETECTION.md (how the gate decides), the logo
 tests/             the hardware-free test suites
 ```
 

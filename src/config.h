@@ -130,6 +130,8 @@ typedef struct {
     int      pa_line;       /* a second output keyed with the PTT: the amplifier
                              * (-1 = none)                                          */
     bool     pa_active_low;
+    int      pa_delay_ms;   /* 0 = the amplifier just before the PTT; more = this
+                             * long after it: exciter first, then the amplifier     */
     bool     refresh_after_tx;      /* send the chip its filter settings again after
                                      * every transmission                           */
 } radio_config_t;
