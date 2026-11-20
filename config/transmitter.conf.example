@@ -80,6 +80,9 @@ tone_to_talkgroup = true                   # tell which CTCSS tone opens the hom
 #host         = on0xxx-rx.example.org      # REQUIRED. host or host:port
 port          = 5210
 auth_key      =                            # the receiver's [uplink] auth_key
+status_port   = 8080                       # the receiver's status page: what it shows is passed
+                                           # on in this node's status and API as "remote_receiver",
+                                           # so one address answers for the whole repeater (0 = not)
 codec         = S16                        # S16 (uncompressed, for a LAN) | OPUS (a slow link)
 
 [radio]
@@ -232,6 +235,12 @@ buffer_periods = 4         # sound card buffer, in 20 ms periods (2..16)
 
 [status]
 http_port     = 8080       # read-only status page (0 = off): http://<this box>:8080/
+admin         = true       # http://<this box>:8080/admin — the configuration in a
+                           # browser, restart, block receiver / transmitter, API
+                           # keys (/api/v1). One user, admin; the password is
+                           # admin until the first login, which has to change it,
+                           # and that first login works from a private address only.
+#admin_file   = /var/lib/tailchaser/admin-<role>.conf   # password, keys, blocks
 bind          = 0.0.0.0
 
 [gpio]

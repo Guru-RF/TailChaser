@@ -61,7 +61,7 @@ talkgroup and on a split site. What is different is the scope and the defaults.
 | Roger beep | TCL | built in, and it tells you where the over came from: "blop" local, "bleep blop" network |
 | Radio | any, wired by you | any — and an SA818 module is programmed by the daemon itself |
 | Setting up the audio | an oscilloscope, a deviation meter, or patience | every source is levelled by itself; the deviation is measured in Hz on any web SDR and the tool says what to change (below) |
-| Watching it | log file | a status page in every program, JSON for the rest |
+| Watching and running it | log file, an editor over ssh | a status page in every program, an admin portal (configuration, restart, block receiver/transmitter), an API with keys |
 | Moving over | — | `bootstrap.sh … replace-svxlink` reads SvxLink's files, takes key and certificate along, and `rollback` goes back |
 | Size | C++, TCL, sound packs | about 12 000 lines of C, no interpreter in the daemon |
 
@@ -475,6 +475,45 @@ tx: off after 13.6 s
 `-v` (or `[log] level = debug`) adds one line per event, including what the
 normaliser did with each over.
 
+## The admin portal and the API
+
+`http://<the node>:8080/admin` — on the same port as the status page.
+
+| | |
+|---|---|
+| **Log in** | one user, `admin`. On a new node the password is `admin`; the first login has to change it before anything else opens, and that first login works from a private address only (the local network, a VPN). |
+| **Configuration** | the node's configuration file in the browser. *Check and save* lets the program itself check it first (the same check as `-t`); what it refuses is not written, and the file before is kept. |
+| **Restart** | at the next quiet moment — that is when a saved configuration takes effect. |
+| **Block receiver / transmitter** | the receiver: nothing it hears is repeated or sent to the talkgroup. The transmitter: it is not keyed, whatever comes in. A block stays, also over a restart, until it is released. |
+| **API keys** | for other programs and devices. `read` keys see the status, `control` keys can also block. A key is shown once; only its hash is kept. |
+
+The API, for a display, a knob on the desk, a script:
+
+```sh
+curl -H "Authorization: Bearer KEY" http://node:8080/api/v1/status      # everything the status page shows
+curl -H "Authorization: Bearer KEY" http://node:8080/api/v1/block       # {"rx":false,"tx":false}
+curl -H "Authorization: Bearer KEY" -d "tx=1" http://node:8080/api/v1/block          # block the transmitter
+curl -H "Authorization: Bearer KEY" -d '{"rx":true}' http://node:8080/api/v1/block   # ...JSON works too
+```
+
+The whole of it — fields, errors, what a microcontroller needs — is in
+[docs/API.md](docs/API.md). `X-API-Key: KEY` is accepted as well. `rx` and `tx` are `1`/`0` or
+`true`/`false`; what is not named stays as it is; the answer is the state
+after the call.
+
+**A split repeater has one address: the transmit site.** It fetches its
+receive site's status and passes it on as `"remote_receiver"` in its own
+(`[receiver] status_port`), and blocking the receiver there blocks what comes
+from the receive site. So the API is spoken to a transmitter, a duplex or a
+simplex node — never to a receiver.
+
+It is plain HTTP: keep it on the local network or a VPN, or put a TLS proxy in
+front of it. `[status] admin = false` turns portal and API off; the state
+(password hash, key hashes, blocks) is in `/var/lib/tailchaser/admin-<role>.conf`
+— delete that file to start again from `admin` / `admin`. For the portal to
+save the configuration the service has to be allowed to write that one file;
+`bootstrap.sh` sets that up.
+
 ## Tuning
 
 Three signals put something on the air on request, each in a quiet moment:
@@ -532,13 +571,14 @@ src/ctcss.c        tone squelch in software
 src/reflector.c refmsg.c refcrypto.c tls.c pki.c srv.c   SvxReflector client
 src/nettrx.c       RemoteTrx server (receiver)     src/netrx.c   its client (transmitter)
 src/audio.c mixer.c sa818.c serial_worker.c gpio*.c      the hardware
-src/status.c       status page
+src/status.c       status page, the HTTP server
+src/admin.c admin.html   the admin portal and the API
 config/            one example per program
 systemd/           one unit per program
 tools/             offline test tools, migration scripts, sdrmon.py (web SDR
                    comparison), devcal.py (deviation in Hz from a web SDR),
                    tailchaser-announce (the spoken announcements)
-docs/              DETECTION.md (how the gate decides), the logo
+docs/              DETECTION.md (how the gate decides), API.md, the logo
 tests/             the hardware-free test suites
 ```
 

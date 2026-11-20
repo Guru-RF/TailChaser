@@ -69,6 +69,12 @@ void engine_set_rxlink(engine_t *e, netrx_t *rxlink);
 
 /* A test transmission (tones), as soon as the transmitter is free. */
 void engine_test_tx(engine_t *e);
+/* From the admin portal or the API. A blocked receiver is a squelch that
+ * never opens; a blocked transmitter is never keyed, whatever the logic
+ * decides. */
+void engine_set_block(engine_t *e, bool rx, bool tx);
+/* Nothing on the air, nothing being received: the moment for a restart. */
+bool engine_idle(const engine_t *e);
 /* Play the next spoken announcement now (SIGUSR2): to hear what it sounds like. */
 void engine_announce_now(engine_t *e);
 /* Send what a listener elsewhere hears before this repeater comes in from the

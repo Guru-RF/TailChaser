@@ -50,7 +50,7 @@ SRC := src/main.c src/role.c src/config.c src/engine.c src/audio.c src/audioproc
        src/reflector.c src/refmsg.c src/refcrypto.c src/tls.c src/pki.c src/srv.c \
        src/jitter.c src/opus_codec.c \
        src/nettrx.c src/netrx.c \
-       src/status.c src/sa818.c src/serial_worker.c src/mixer.c \
+       src/status.c src/admin.c src/sa818.c src/serial_worker.c src/mixer.c \
        src/detect.c src/log.c src/util.c src/wav.c
 GPIOD_MAJOR := $(firstword $(subst ., ,$(shell pkg-config --modversion libgpiod 2>/dev/null)))
 ifdef NOGPIO
@@ -88,6 +88,12 @@ tailchaser-%: src/bin/%.o $(OBJ)
 src/%.o: src/%.c
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
+# The admin page is a file of its own; it is compiled in as an array.
+src/admin_page.h: src/admin.html
+	{ echo 'static const unsigned char ADMIN_PAGE[] = {'; \
+	  od -An -v -tx1 $< | sed 's/ \([0-9a-f][0-9a-f]\)/0x\1,/g'; echo '};'; } > $@
+src/admin.o: src/admin_page.h
+
 -include $(DEP)
 
 tools: $(TOOLS)
@@ -117,6 +123,7 @@ check: $(BINS) dtmftest gatetest agctest ctcsstest
 	python3 tests/ctcss.py ./ctcsstest ./tailchaser-receiver
 	python3 tests/announce.py ./tailchaser-duplex tools/tailchaser-announce
 	python3 tools/devcal.py --selftest
+	python3 tests/admin.py ./tailchaser-duplex
 	python3 tests/e2e_receiver.py ./tailchaser-receiver
 	python3 tests/e2e_repeater.py ./tailchaser-receiver ./tailchaser-transmitter ./tailchaser-duplex
 	python3 tests/e2e_simplex.py ./tailchaser-simplex
@@ -136,7 +143,7 @@ pkgcheck:
 	@echo "libgpiod: $$(pkg-config --modversion libgpiod 2>/dev/null || echo none) -> $(filter src/gpio%,$(SRC))"
 
 clean:
-	$(RM) src/*.o src/*.d src/bin/*.o src/bin/*.d $(BINS) $(TOOLS)
+	$(RM) src/*.o src/*.d src/bin/*.o src/bin/*.d src/admin_page.h $(BINS) $(TOOLS)
 
 install: $(addprefix tailchaser-,$(INSTALL_ROLES))
 	@for r in $(INSTALL_ROLES); do \

@@ -40,6 +40,9 @@ ProtectHome=yes
 PrivateTmp=yes
 StateDirectory=tailchaser
 StateDirectoryMode=0700
+# The admin portal writes the configuration file (which is group-writable;
+# the directory is not).
+ReadWritePaths=-/etc/tailchaser
 DeviceAllow=char-alsa rw
 DeviceAllow=char-gpiochip rw
 # /dev/serial0 is a symlink; allow the real UART nodes it can resolve to.

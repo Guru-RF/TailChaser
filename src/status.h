@@ -58,6 +58,7 @@ typedef struct {
     int    listen_port;
     bool   normalize;
     char   version[32];
+    bool   block_rx, block_tx;      /* set from the admin portal or the API */
     char   board[96];
     char   firmware[48];
     double freq_rx_mhz, freq_tx_mhz;
@@ -119,6 +120,13 @@ typedef struct status status_t;
 
 /* port 0 = no HTTP server (the snapshot still works). */
 status_t *status_new(const char *bind_addr, int port);
+/* The admin portal and the API are served by the same server. */
+struct admin;
+void status_set_admin(status_t *s, struct admin *a);
+/* A transmit site: the status of its receive site (a tailchaser-receiver's
+ * /status.json) is fetched and passed on as "remote_receiver", so whoever
+ * asks only has to ask here. port 0 = not. */
+void status_set_remote(status_t *s, const char *host, int port);
 void      status_free(status_t *s);
 
 /* Edit the snapshot: lock, change, unlock. */

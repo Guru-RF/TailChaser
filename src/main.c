@@ -28,6 +28,7 @@
 #include "sa818.h"
 #include "serial_worker.h"
 #include "status.h"
+#include "admin.h"
 #include "util.h"
 
 #include <errno.h>
@@ -462,6 +463,7 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     nettrx_t        *uplink = NULL;
     netrx_t         *rxlink = NULL;
     status_t        *status = NULL;
+    admin_t         *admin = NULL;
     engine_t        *eng = NULL;
     bool  dev_owned_by_sw = false, hw_cos = false;
     int   rc = 1;
@@ -546,6 +548,18 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     status = status_new(cfg->status.bind, cfg->status.http_port);
     if (!status)
         goto done;
+    if (cfg->status.admin && cfg->status.http_port > 0) {
+        char file[256];
+        if (cfg->status.admin_file[0])
+            snprintf(file, sizeof file, "%.255s", cfg->status.admin_file);
+        else
+            snprintf(file, sizeof file, "/var/lib/tailchaser/admin-%s.conf", role->name);
+        admin = admin_new(file, cfgpath, role->name, "/proc/self/exe");
+        if (admin)
+            status_set_admin(status, admin);
+    }
+    if (role->remote_rx && cfg->receiver.status_port > 0)
+        status_set_remote(status, cfg->receiver.host, cfg->receiver.status_port);
     {
         status_snapshot_t *d = status_lock(status);
         snprintf(d->role, sizeof d->role, "%s", role->name);
@@ -675,6 +689,15 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
             break;
         }
         uint64_t now = mono_ms();
+        if (admin) {
+            bool brx, btx;
+            admin_blocks(admin, &brx, &btx);
+            engine_set_block(eng, brx, btx);
+            if (admin_restart_wanted(admin) && engine_idle(eng)) {
+                log_info("restart asked for in the admin portal — stopping; the service starts it again");
+                break;
+            }
+        }
         if (g_test) {
             g_test = 0;
             engine_test_tx(eng);
@@ -794,6 +817,7 @@ done:
     if (uplink) nettrx_free(uplink);
     if (ref) reflector_free(ref);
     if (status) status_free(status);
+    if (admin) admin_free(admin);
     if (sw) serial_worker_free(sw);
     if (dev && !dev_owned_by_sw) sa818_close(dev);
     if (gpio) gpio_close(gpio);

@@ -100,6 +100,8 @@ struct engine {
     uint64_t ann_until;                 /* ...until then, after that it is skipped    */
     unsigned long n_announce;
     float    duck, duck_to;             /* gain on Morse/announcement: now, with audio */
+    bool     block_said;
+    bool     block_rx, block_tx, hw_keyed;  /* admin: receiver ignored, transmitter never keyed */
     bool     pa_pending;                /* the amplifier is still to be keyed (pa_delay_ms) */
     uint64_t pa_at;
     bool     calltest_due;              /* the Morse of our own call was asked for (SIGRTMIN+1) */
@@ -242,6 +244,15 @@ static void ptt(engine_t *e, bool on)
      * after it has been released. */
     /* With pa_delay_ms it is the other way round: the exciter first, the
      * amplifier that much later (tx_tick), and off again before the exciter. */
+    /* A blocked transmitter: the logic goes on as always, the lines stay
+     * where they are. */
+    e->hw_keyed = on;
+    if (on && e->block_tx) {
+        if (!e->block_said)
+            log_warn("tx: the transmitter is BLOCKED (admin) — not keyed");
+        e->block_said = true;
+        return;
+    }
     bool pa = e->gpio && e->cfg->radio.pa_line >= 0;
     int  pa_delay = e->cfg->radio.pa_delay_ms;
     bool pa_bad = false;
@@ -461,6 +472,34 @@ void engine_announce_now(engine_t *e)
     e->ann_due = true;
     e->ann_until = e->t_ms + (uint64_t)an->wait_s * 1000;
     log_info("announce: asked for by hand — the one of %02d:%02d, now", tm.tm_hour, tm.tm_min);
+}
+
+void engine_set_block(engine_t *e, bool rx, bool tx)
+{
+    if (rx != e->block_rx) {
+        e->block_rx = rx;
+        if (rx && e->cos_open && e->role->remote_rx)
+            engine_remote_squelch(e, false, e->remote_siglev);  /* a local one closes with the next frame */
+        log_warn("rx: the receiver is %s", rx ? "BLOCKED (admin): nothing it hears goes anywhere" : "released");
+    }
+    if (tx != e->block_tx) {
+        bool keyed = e->tx != TX_OFF;
+        if (tx && keyed) {
+            e->block_tx = false;
+            ptt(e, false);                      /* off the air, now */
+            e->hw_keyed = true;
+        }
+        e->block_tx = tx;
+        e->block_said = false;
+        log_warn("tx: the transmitter is %s", tx ? "BLOCKED (admin): it is not keyed, whatever comes in" : "released");
+        if (!tx && keyed)
+            ptt(e, true);                       /* in the middle of an over: on the air again */
+    }
+}
+
+bool engine_idle(const engine_t *e)
+{
+    return e->tx == TX_OFF && !e->cos_open && !e->net_active && !e->local_over;
 }
 
 void engine_test_tx(engine_t *e)
@@ -1212,6 +1251,8 @@ static void remote_over_done(engine_t *e)
 
 void engine_remote_squelch(engine_t *e, bool open, float siglev)
 {
+    if (e->block_rx)
+        open = false;
     e->remote_siglev = siglev;
     if (open == e->cos_open)
         return;
@@ -1232,6 +1273,8 @@ void engine_remote_squelch(engine_t *e, bool open, float siglev)
 
 void engine_remote_audio(engine_t *e, const int16_t *pcm, int n)
 {
+    if (e->block_rx)
+        return;
     if (!e->local_over)
         return;
     for (int off = 0; off < n;) {
@@ -1444,6 +1487,8 @@ void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
                 cos = false;
             }
         }
+        if (e->block_rx)
+            cos = false;
         if (cos != e->cos_open) {
             e->cos_open = cos;
             if (!cos) e->rssi = -1;
@@ -1529,6 +1574,8 @@ void engine_push_status(engine_t *e)
     d->siglev       = e->role->remote_rx ? e->remote_siglev : siglev_now(e);
     d->over_open    = e->local_over;
     d->norm_gain_db = e->agc.gain_db;
+    d->block_rx = e->block_rx;
+    d->block_tx = e->block_tx;
     d->tg           = e->sel_tg;
     snprintf(d->talker, sizeof d->talker, "%s", e->net_active || e->talker[0] ? e->talker : "");
     d->cos_open     = e->cos_open;

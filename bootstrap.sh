@@ -185,6 +185,9 @@ run "make -C '$REPO_DIR' clean"
 run "make -C '$REPO_DIR' $PROG" || die "build failed"
 run "make -C '$REPO_DIR' install ROLE=$ROLE"
 run "install -d -m 700 -o '$SERVICE_USER' -g '$SERVICE_USER' '$STATE_DIR'"
+# The admin portal saves the configuration: the service may write that one
+# file (not the directory — it cannot make or replace files there).
+[ ! -f "$CONF" ] || run "chown root:'$SERVICE_USER' '$CONF' && chmod 660 '$CONF'"
 
 # ---------------------------------------------------------------------------
 # Is the program up, and does it stay up? Then: is it connected — logged in on
@@ -286,7 +289,7 @@ if [ "$TAKEOVER" = yes ]; then
                 || { rm -f "$CONF.new"; die "could not take the settings over — remotetrx was NOT touched"; } ;;
         esac
         run "mv '$CONF.new' '$CONF'"
-        run "chown root:'$SERVICE_USER' '$CONF' && chmod 640 '$CONF'"
+        run "chown root:'$SERVICE_USER' '$CONF' && chmod 660 '$CONF'"
         say "Settings taken over into $CONF"
     fi
     # the copied key and certificate belong to the service
@@ -348,7 +351,7 @@ fi
 # The example is deliberately incomplete — no callsign, no frequency: a box
 # that was not set up does not start, and does not transmit.
 if [ ! -f "$CONF" ]; then
-    run "install -m640 -g '$SERVICE_USER' '$CONF_DIR/$ROLE.conf.example' '$CONF'"
+    run "install -m660 -g '$SERVICE_USER' '$CONF_DIR/$ROLE.conf.example' '$CONF'"
 fi
 
 if [ "$MODE" = "deps-only" ]; then

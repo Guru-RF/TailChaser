@@ -92,6 +92,8 @@ void config_defaults(config_t *cfg, const role_t *role)
     snprintf(cfg->dtmf.tg_prefix, sizeof cfg->dtmf.tg_prefix, "91");
 
     cfg->status.http_port = 8080;
+    cfg->status.admin = true;
+    cfg->status.admin_file[0] = '\0';          /* set in config_finish: one per role */
     snprintf(cfg->status.bind, sizeof cfg->status.bind, "0.0.0.0");
     cfg->status.rssi_lo   = 79;
     cfg->status.rssi_hi   = 100;
@@ -102,6 +104,7 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->uplink.rx_id       = '?';
 
     cfg->receiver.port = 5210;
+    cfg->receiver.status_port = 8080;
     snprintf(cfg->receiver.codec, sizeof cfg->receiver.codec, "S16");
 
     cfg->siglev.mode    = SIGLEV_RSSI;
@@ -354,6 +357,7 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "rx_id")) { u->rx_id = v[0] ? v[0] : '?'; return 1; }
     } else if (!strcmp(sec, "receiver")) {
         receiver_config_t *rc = &cfg->receiver;
+        if (!strcmp(key, "status_port")) INT(rc->status_port);
         if (!strcmp(key, "host")) {
             /* host or host:port (not an IPv6 literal with colons) */
             char *colon = strrchr(v, ':');
@@ -598,6 +602,8 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
     } else if (!strcmp(sec, "status")) {
         if (!strcmp(key, "http_port")) INT(cfg->status.http_port);
         if (!strcmp(key, "bind"))      STR(cfg->status.bind);
+        if (!strcmp(key, "admin"))     BOOL(cfg->status.admin);
+        if (!strcmp(key, "admin_file")) STR(cfg->status.admin_file);
         if (!strcmp(key, "rssi_lo"))   { cfg->status_rssi_set = true; INT(cfg->status.rssi_lo); }
         if (!strcmp(key, "rssi_hi"))   { cfg->status_rssi_set = true; INT(cfg->status.rssi_hi); }
     } else if (!strcmp(sec, "log")) {

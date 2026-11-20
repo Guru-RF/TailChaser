@@ -1,0 +1,132 @@
+<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>TailChaser admin</title><style>
+:root{--bg:#0b0d10;--card:#12151a;--fg:#f5f3ee;--mut:#9aa0ab;--line:#262b34;--ok:#6ad19b;--bad:#ff8a80;--badbg:#3b1c1a;--acc:#f9b934}
+@media(prefers-color-scheme:light){:root{--bg:#f6f4ef;--card:#fff;--fg:#14171c;--mut:#667085;--line:#e4e0d6;--ok:#16794c;--bad:#b3261e;--badbg:#fbe9e7;--acc:#c98a06}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 16px}
+.logo{width:52px;height:52px;flex:none;border-radius:13px;background:var(--card);border:1.5px solid #6b5327}
+.logo path{fill:none;stroke:#f9b934;stroke-width:6.5;stroke-linecap:round;stroke-linejoin:round}
+h1{font-size:30px;line-height:1;margin:0;font-weight:800;letter-spacing:-.02em}h1 b{color:var(--acc)}h1 i{font-style:normal;color:var(--mut);font-weight:600}
+.tag{font:11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.28em;color:var(--mut);margin-top:6px}
+.right{margin-left:auto;display:flex;gap:10px;align-items:center}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
+h2{font-size:14px;margin:0 0 10px}p{margin:0 0 10px}.mut{color:var(--mut);font-size:13px}
+label{display:block;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:8px 0 3px}
+input,select,textarea{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:inherit}
+textarea{font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;height:460px;white-space:pre;overflow:auto;tab-size:4}
+button{background:var(--acc);color:#14171c;border:0;border-radius:7px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.sec{background:transparent;color:var(--fg);border:1px solid var(--line)}button.danger{background:var(--bad);color:#14171c}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}.grow{flex:1;min-width:160px}
+.msg{font-size:13px;margin-top:8px;white-space:pre-wrap}.msg.err{color:var(--bad)}.msg.ok{color:var(--ok)}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.sw:first-of-type{border-top:0}.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;font-weight:600;background:var(--line);color:var(--mut)}
+.pill.bad{background:var(--badbg);color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;color:var(--mut);font-weight:500}th,td{padding:6px 10px 6px 0;border-bottom:1px solid var(--line)}
+code,pre{font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace}pre{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:10px;overflow:auto;margin:8px 0 0}
+.key{word-break:break-all;color:var(--acc)}.narrow{max-width:380px;margin:40px auto}
+a{color:var(--acc);text-decoration:none}[hidden]{display:none!important}
+</style></head><body><main>
+<header><svg class=logo viewBox="0 0 100 100" aria-hidden=true>
+<path d="M25 38a26 26 0 0 1 44-11"/><path d="M72 20v11H61"/><path d="M75 62a26 26 0 0 1-44 11"/><path d="M28 80V69h11"/>
+<path d="M29 50h11l5-7 6 14 5-10 3 3h12" style="stroke-width:5"/></svg>
+<div><h1>Tail<b>Chaser</b><i id=role></i></h1><div class=tag>ADMIN</div></div>
+<div class=right><a href="/">status page</a><button class=sec id=out hidden>Log out</button></div></header>
+
+<section id=vlogin class="card narrow" hidden>
+<h2>Log in</h2>
+<form id=flogin><label>Name</label><input id=user value=admin autocomplete=username>
+<label>Password</label><input id=pass type=password autocomplete=current-password autofocus>
+<div class=row><button>Log in</button></div><div class="msg err" id=mlogin></div></form>
+<p class=mut style="margin-top:12px">A new node: <code>admin</code> / <code>admin</code>, from the local network, and you choose a new password straight away.</p>
+</section>
+
+<section id=vpass class="card narrow" hidden>
+<h2 id=hpass>Choose a password</h2>
+<p class=mut id=ppass>The first password has to go before anything else is open.</p>
+<form id=fpass><label>Present password</label><input id=old type=password autocomplete=current-password>
+<label>New password (8 characters or more)</label><input id=new1 type=password autocomplete=new-password>
+<label>Once more</label><input id=new2 type=password autocomplete=new-password>
+<div class=row><button>Change</button><button type=button class=sec id=cpass hidden>Cancel</button></div><div class=msg id=mpass></div></form>
+</section>
+
+<div id=vmain hidden>
+<section class=card><h2>On the air</h2>
+<div class=sw><div><b>Receiver</b> <span class=pill id=prx>open</span><div class=mut>Blocked: nothing that is received is repeated or sent to the talkgroup.</div></div>
+<button id=brx class=sec>Block</button></div>
+<div class=sw><div><b>Transmitter</b> <span class=pill id=ptx>open</span><div class=mut>Blocked: the transmitter is not keyed, whatever comes in.</div></div>
+<button id=btx class=sec>Block</button></div>
+<div class=sw><div><b>Restart</b><div class=mut>Stops and starts the program at the next quiet moment — that is when a saved configuration takes effect.</div></div>
+<button id=brestart class=sec>Restart</button></div>
+<div class=msg id=mair></div></section>
+
+<section class=card><h2>Configuration <span class=mut id=cpath></span></h2>
+<textarea id=conf spellcheck=false></textarea>
+<div class=row><button id=bsave>Check and save</button><button class=sec id=breload>Read again</button>
+<span class=mut>It is checked by the program before it is written; the one before is kept.</span></div>
+<div class=msg id=mconf></div></section>
+
+<section class=card><h2>API keys</h2>
+<p class=mut>For other programs and devices. A <b>read</b> key sees the status; a <b>control</b> key can also block receiver and transmitter. A key is shown once, when it is made.</p>
+<table><thead><tr><th>Name</th><th>May</th><th>Made</th><th></th></tr></thead><tbody id=keys></tbody></table>
+<div class=row><input class=grow id=klabel placeholder="what will use it, e.g. VFO knob in the shack" maxlength=38>
+<select id=kscope style="width:auto"><option value=read>read</option><option value=control>control</option></select><button id=bkey>Make a key</button></div>
+<div class=msg id=mkey></div>
+<pre id=apidoc></pre></section>
+
+<section class=card><h2>Password</h2><button class=sec id=bchange>Change the password</button></section>
+</div>
+<p class=mut><a href="https://tailchaser.app">tailchaser.app</a> · free software, GPL-3.0-or-later</p>
+</main><script>
+const $=i=>document.getElementById(i),show=(i,on)=>$(i).hidden=!on;
+const enc=o=>Object.entries(o).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+async function call(path,data){
+  const r=await fetch('/admin/api/'+path,data===undefined?{cache:'no-store'}:
+    {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-TailChaser':'1'},body:enc(data)});
+  if(r.status==401&&path!='login'&&path!='session'){view();throw new Error('logged out')}
+  const t=await r.text();try{return JSON.parse(t)}catch(e){return t}}
+function say(id,text,ok){const m=$(id);m.textContent=text||'';m.className='msg '+(ok?'ok':'err')}
+let must=false;
+async function view(){
+  let s;try{s=await call('session')}catch(e){return}
+  must=s.must_change;$('role').textContent='-'+s.role[0].toUpperCase()+s.role.slice(1);
+  document.title='TailChaser-'+s.role[0].toUpperCase()+s.role.slice(1)+' admin';
+  show('vlogin',!s.auth);show('vpass',s.auth&&must);show('vmain',s.auth&&!must);show('out',s.auth);
+  if(s.auth&&!must){$('cpath').textContent=s.conf;blocks(s.block);loadConf();loadKeys();apidoc()}
+  if(s.auth&&must){$('old').value='admin';$('new1').focus()}}
+function blocks(b){for(const k of ['rx','tx']){const on=b[k];$('p'+k).textContent=on?'BLOCKED':'open';$('p'+k).className='pill'+(on?' bad':'');
+  $('b'+k).textContent=on?'Release':'Block';$('b'+k).className=on?'':'sec';$('b'+k).dataset.on=on?1:0}}
+async function loadConf(){const t=await call('config');$('conf').value=typeof t=='string'?t:'';say('mconf','')}
+async function loadKeys(){const r=await call('keys');const tb=$('keys');tb.textContent='';
+  if(!r.keys.length){const tr=tb.insertRow();const td=tr.insertCell();td.colSpan=4;td.className='mut';td.textContent='No keys yet.'}
+  for(const k of r.keys){const tr=tb.insertRow();tr.insertCell().textContent=k.label;tr.insertCell().textContent=k.scope;
+    tr.insertCell().textContent=new Date(k.created*1000).toLocaleDateString();const b=document.createElement('button');
+    b.textContent='Delete';b.className='sec';b.onclick=async()=>{if(confirm('Delete the key "'+k.label+'"? What uses it stops working.')){await call('keys/delete',{id:k.id});loadKeys()}};
+    tr.insertCell().appendChild(b)}}
+function apidoc(){const h=location.origin;$('apidoc').textContent=
+'curl -H "Authorization: Bearer KEY" '+h+'/api/v1/status          # everything the status page shows\n'+
+'curl -H "Authorization: Bearer KEY" '+h+'/api/v1/block           # {"rx":false,"tx":false}\n'+
+'curl -H "Authorization: Bearer KEY" -d "tx=1" '+h+'/api/v1/block   # block the transmitter (control key); rx=1, tx=0, ...'}
+$('flogin').onsubmit=async e=>{e.preventDefault();const r=await call('login',{user:$('user').value,pass:$('pass').value});
+  if(r.ok){$('pass').value='';say('mlogin','');view()}else say('mlogin',r.error)};
+$('fpass').onsubmit=async e=>{e.preventDefault();if($('new1').value!=$('new2').value)return say('mpass','the two are not the same');
+  const r=await call('password',{old:$('old').value,new:$('new1').value});
+  if(r.ok){for(const i of ['old','new1','new2'])$(i).value='';say('mpass','');view()}else say('mpass',r.error)};
+$('bchange').onclick=()=>{show('vmain',false);show('vpass',true);show('cpass',true);$('hpass').textContent='Change the password';$('ppass').textContent='';$('old').value='';$('old').focus()};
+$('cpass').onclick=()=>view();
+$('out').onclick=async()=>{await call('logout',{});view()};
+for(const k of ['rx','tx'])$('b'+k).onclick=async()=>{const on=$('b'+k).dataset.on=='1';
+  if(!on&&!confirm('Block the '+(k=='rx'?'receiver':'transmitter')+'? It stays blocked, also after a restart, until it is released.'))return;
+  const r=await call('block',{[k]:on?0:1});if(r.ok)blocks(r.block);else say('mair',r.error)};
+$('brestart').onclick=async()=>{if(!confirm('Restart the node at the next quiet moment?'))return;const r=await call('restart',{});
+  say('mair',r.ok?'Restart asked for — the page comes back by itself.':r.error,r.ok);if(r.ok)setTimeout(function w(){fetch('/admin/api/session',{cache:'no-store'}).then(()=>{say('mair','');view()},()=>setTimeout(w,1500))},4000)};
+$('bsave').onclick=async()=>{$('bsave').disabled=true;say('mconf','checking…',true);let r;try{r=await call('config',{conf:$('conf').value})}finally{$('bsave').disabled=false}
+  const said=(r.said||'').trim();say('mconf',(r.ok?'Saved. It takes effect at the next restart.':r.error)+(said?'\n\n'+said:''),r.ok)};
+$('breload').onclick=loadConf;
+$('bkey').onclick=async()=>{const r=await call('keys',{label:$('klabel').value.trim(),scope:$('kscope').value});
+  if(r.ok){$('klabel').value='';const m=$('mkey');m.className='msg ok';m.textContent='The key — copy it now, it is not shown again:\n';
+    const c=document.createElement('code');c.className='key';c.textContent=r.key;m.appendChild(c);loadKeys()}else say('mkey',r.error)};
+view();
+</script></body></html>

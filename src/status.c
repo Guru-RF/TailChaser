@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS */
 #include "status.h"
+#include "admin.h"
 #include "log.h"
 #include "util.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <pthread.h>
@@ -24,6 +26,12 @@ struct status {
     pthread_t         thread;
     bool              running;
     atomic_bool       stop;
+    struct admin     *admin;
+    char              remote_host[256];
+    int               remote_port;
+    char             *remote_json;      /* the last answer, or NULL */
+    size_t            remote_len;
+    uint64_t          remote_at;
 };
 
 static const char PAGE[] =
@@ -97,7 +105,7 @@ static const char PAGE[] =
 "<th>Time</th><th class=r>Length</th><th>Station</th><th class=r>Talkgroup</th><th>On the air</th>"
 "</tr></thead><tbody id=nrows></tbody></table></div></div>"
 "<footer><span id=ver>TailChaser</span> · <a href='https://tailchaser.app'>tailchaser.app</a>"
-" · free software, GPL-3.0-or-later</footer>"
+" · free software, GPL-3.0-or-later · <a href='/admin'>admin</a></footer>"
 "<script>"
 "const $=i=>document.getElementById(i),E=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));"
 "function pill(c,t){return '<span class=\"pill '+c+'\">'+E(t)+'</span>'}"
@@ -131,7 +139,7 @@ static const char PAGE[] =
 "$('sub').textContent=(r.type=='none'?'radio on the sound card':"
 "(h.rx&&h.tx?r.freq_mhz.toFixed(4)+' MHz'+(r.freq_tx_mhz!=r.freq_mhz?' (TX '+r.freq_tx_mhz.toFixed(4)+')':''):h.tx?'TX '+r.freq_tx_mhz.toFixed(4)+' MHz':'RX '+r.freq_mhz.toFixed(4)+' MHz')+' · '+r.bandwidth+"
 "(h.rx?' · CTCSS RX '+r.ctcss_rx:'')+(h.tx?' · CTCSS TX '+r.ctcss_tx:'')+(h.rx?' · squelch '+r.squelch:''))+(h.rx?' · gate '+g.mode:'')+"
-"(d.norm.enabled&&(h.rx||h.rxlink)?' · levelled':'');"
+"(d.norm.enabled&&(h.rx||h.rxlink)?' · levelled':'')+(d.block.rx?' · RECEIVER BLOCKED':'')+(d.block.tx?' · TRANSMITTER BLOCKED':'');"
 "if(h.uplink){$('up').innerHTML=u.connected?pill('ok','connected'):pill('bad','not connected');"
 "$('ups').textContent=u.connected?(u.peer+' · '+(u.codec||'no codec yet')+(u.mute==2?' · muted':'')):'waiting on TCP port '+u.listen_port+' · RemoteTrx 2.'+u.proto_minor}"
 "$('link').innerHTML=l.connected?pill('ok','TG '+l.tg):l.waiting_for_cert?pill('warn','waiting for certificate'):pill('bad','not connected');"
@@ -206,6 +214,7 @@ static size_t build_json(status_t *s, char *out, size_t cap)
     sb_printf(&b, "{\"version\":\"%s\",\"board\":\"%s\",\"uptime_s\":%ld,\"now\":%ld,",
               js(d->version, t1, sizeof t1), js(d->board, t2, sizeof t2),
               (long)(now - d->started), (long)now);
+    sb_printf(&b, "\"block\":{\"rx\":%s,\"tx\":%s},", B(d->block_rx), B(d->block_tx));
     sb_printf(&b, "\"role\":\"%s\",\"title\":\"%s\",\"has\":{\"rx\":%s,\"tx\":%s,\"reflector\":%s,"
                   "\"uplink\":%s,\"rxlink\":%s,\"repeater\":%s},",
               js(d->role, t1, sizeof t1), js(d->title, t2, sizeof t2), B(d->has_rx), B(d->has_tx),
@@ -300,48 +309,243 @@ static void send_all(int fd, const char *p, size_t n)
     }
 }
 
-static void respond(int fd, const char *status, const char *type, const char *body, size_t len)
+static void respond_h(int fd, const char *status, const char *type, const char *extra,
+                      const char *body, size_t len)
 {
-    char h[256];
+    char h[640];
     int n = snprintf(h, sizeof h,
                      "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-                     "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-                     status, type, len);
+                     "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
+                     "X-Frame-Options: DENY\r\n%sConnection: close\r\n\r\n",
+                     status, type, len, extra ? extra : "");
     send_all(fd, h, (size_t)n);
     send_all(fd, body, len);
 }
 
-static void serve(status_t *s, int fd)
+static void respond(int fd, const char *status, const char *type, const char *body, size_t len)
+{
+    respond_h(fd, status, type, NULL, body, len);
+}
+
+#define REQ_HEAD_MAX  8192
+#define REQ_BODY_MAX  (3 * 256 * 1024 + 4096)    /* a configuration, URL-encoded */
+
+/* The value of a header in the request head, or "". */
+static void header(const char *head, const char *name, char *out, size_t cap)
+{
+    size_t nl = strlen(name);
+    out[0] = '\0';
+    for (const char *p = strchr(head, '\n'); p; p = strchr(p, '\n')) {
+        p++;
+        if (!strncasecmp(p, name, nl) && p[nl] == ':') {
+            p += nl + 1;
+            while (*p == ' ' || *p == '\t') p++;
+            size_t n = strcspn(p, "\r\n");
+            if (n >= cap) n = cap - 1;
+            memcpy(out, p, n);
+            out[n] = '\0';
+            return;
+        }
+    }
+}
+
+#define REMOTE_MAX     65536
+#define REMOTE_FRESH_MS 2000
+
+/* The receive site's own status, over HTTP; short timeouts — this thread
+ * serves the page too. */
+static void remote_fetch(status_t *s)
+{
+    uint64_t now = mono_ms();
+    if (s->remote_at && now - s->remote_at < REMOTE_FRESH_MS)
+        return;
+    s->remote_at = now ? now : 1;
+    free(s->remote_json);
+    s->remote_json = NULL;
+    s->remote_len = 0;
+
+    char port[16];
+    snprintf(port, sizeof port, "%d", s->remote_port);
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(s->remote_host, port, &hints, &res) != 0 || !res)
+        return;
+    int fd = socket(res->ai_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    bool up = false;
+    if (fd >= 0) {
+        if (connect(fd, res->ai_addr, res->ai_addrlen) == 0) {
+            up = true;
+        } else if (errno == EINPROGRESS) {
+            struct pollfd p = { fd, POLLOUT, 0 };
+            int err = 0;
+            socklen_t el = sizeof err;
+            up = poll(&p, 1, 400) == 1 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el) == 0 && err == 0;
+        }
+    }
+    freeaddrinfo(res);
+    if (!up) {
+        if (fd >= 0) close(fd);
+        return;
+    }
+    char req[320];
+    int rn = snprintf(req, sizeof req, "GET /status.json HTTP/1.0\r\nHost: %s\r\n\r\n", s->remote_host);
+    char *buf = malloc(REMOTE_MAX + 1);
+    size_t got = 0;
+    if (buf && send(fd, req, (size_t)rn, MSG_NOSIGNAL) == rn) {
+        uint64_t until = mono_ms() + 600;
+        while (got < REMOTE_MAX && mono_ms() < until) {
+            struct pollfd p = { fd, POLLIN, 0 };
+            if (poll(&p, 1, 100) != 1)
+                continue;
+            ssize_t r = recv(fd, buf + got, REMOTE_MAX - got, 0);
+            if (r <= 0)
+                break;
+            got += (size_t)r;
+        }
+    }
+    close(fd);
+    if (buf) {
+        buf[got] = '\0';
+        char *body = strstr(buf, "\r\n\r\n");
+        size_t n = body ? got - (size_t)(body + 4 - buf) : 0;
+        while (n > 0 && (body[4 + n - 1] == '\n' || body[4 + n - 1] == '\r' || body[4 + n - 1] == ' ')) n--;
+        /* only something that looks like a whole JSON object is passed on */
+        if (!strncmp(buf, "HTTP/1.", 7) && strstr(buf, " 200") == buf + 8 && n > 2 &&
+            body[4] == '{' && body[4 + n - 1] == '}') {
+            s->remote_json = malloc(n + 1);
+            if (s->remote_json) {
+                memcpy(s->remote_json, body + 4, n);
+                s->remote_json[n] = '\0';
+                s->remote_len = n;
+            }
+        }
+    }
+    free(buf);
+}
+
+static char *json_dup(void *ctx, size_t *len)
+{
+    status_t *s = ctx;
+    char *json = malloc(40960 + REMOTE_MAX + 64);
+    if (!json)
+        return NULL;
+    size_t n = build_json(s, json, 40960);
+    if (s->remote_port > 0) {
+        remote_fetch(s);
+        while (n > 0 && json[n - 1] != '}') n--;        /* back to the last brace */
+        if (n > 0) {
+            n--;
+            n += (size_t)sprintf(json + n, ",\"remote_receiver\":");
+            if (s->remote_json) {
+                memcpy(json + n, s->remote_json, s->remote_len);
+                n += s->remote_len;
+            } else {
+                n += (size_t)sprintf(json + n, "null");
+            }
+            n += (size_t)sprintf(json + n, "}\n");
+        }
+    }
+    *len = n;
+    return json;
+}
+
+static void serve(status_t *s, int fd, const char *peer)
 {
     struct timeval tv = { 2, 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-    char req[1024];
-    size_t got = 0;
-    while (got < sizeof req - 1) {
-        ssize_t r = recv(fd, req + got, sizeof req - 1 - got, 0);
+    char *req = malloc(REQ_HEAD_MAX + 1);
+    if (!req)
+        return;
+    size_t got = 0, cap = REQ_HEAD_MAX, head_len = 0;
+    while (got < cap) {
+        ssize_t r = recv(fd, req + got, cap - got, 0);
         if (r <= 0) break;
         got += (size_t)r;
         req[got] = '\0';
-        if (strstr(req, "\r\n\r\n") || strstr(req, "\n\n")) break;
+        const char *e = strstr(req, "\r\n\r\n");
+        if (e) { head_len = (size_t)(e - req) + 4; break; }
     }
     req[got] = '\0';
+    if (!head_len) {
+        if (got) respond(fd, "400 Bad Request", "text/plain", "bad request\n", 12);
+        free(req);
+        return;
+    }
+    req[head_len - 2] = '\0';                   /* the head is a string of its own */
     char method[8] = "", path[128] = "";
     sscanf(req, "%7s %127s", method, path);
     char *q = strchr(path, '?');
-    if (q) *q = '\0';
+    const char *query = "";
+    if (q) { *q = '\0'; query = q + 1; }
 
-    if (strcmp(method, "GET") != 0) {
+    /* the body, when there is one */
+    char clen[24];
+    header(req, "Content-Length", clen, sizeof clen);
+    size_t want = (size_t)strtoul(clen, NULL, 10), have = got - head_len;
+    if (want > REQ_BODY_MAX) {
+        respond(fd, "413 Payload Too Large", "text/plain", "too large\n", 10);
+        free(req);
+        return;
+    }
+    if (want > 0) {
+        char *bigger = realloc(req, head_len + want + 1);
+        if (!bigger) { free(req); return; }
+        req = bigger;
+        if (have > want) have = want;
+        while (have < want) {
+            ssize_t r = recv(fd, req + head_len + have, want - have, 0);
+            if (r <= 0) break;
+            have += (size_t)r;
+        }
+        if (have < want) {
+            respond(fd, "400 Bad Request", "text/plain", "short body\n", 11);
+            free(req);
+            return;
+        }
+    }
+    char *body = req + head_len;
+    body[want] = '\0';
+
+    bool is_get = !strcmp(method, "GET");
+    if (s->admin && (!strncmp(path, "/admin", 6) || !strncmp(path, "/api/", 5))) {
+        char cookie[512], auth[256], key[160], marker[8];
+        header(req, "Cookie", cookie, sizeof cookie);
+        header(req, "Authorization", auth, sizeof auth);
+        header(req, "X-API-Key", key, sizeof key);
+        header(req, "X-TailChaser", marker, sizeof marker);
+        http_req_t in = { method, path, query, cookie, auth, key, marker, body, want, peer };
+        http_resp_t out;
+        memset(&out, 0, sizeof out);
+        if (admin_handle(s->admin, &in, &out, json_dup, s)) {
+            respond_h(fd, out.status, out.type, out.header, out.body, out.len);
+            free(out.buf);
+            free(req);
+            return;
+        }
+    }
+    if (!is_get) {
         respond(fd, "405 Method Not Allowed", "text/plain", "read-only\n", 10);
     } else if (!strcmp(path, "/") || !strcmp(path, "/index.html")) {
         respond(fd, "200 OK", "text/html; charset=utf-8", PAGE, sizeof PAGE - 1);
     } else if (!strcmp(path, "/status.json")) {
-        static _Thread_local char json[40960];
-        size_t n = build_json(s, json, sizeof json);
-        respond(fd, "200 OK", "application/json", json, n);
+        size_t n = 0;
+        char *json = json_dup(s, &n);
+        respond(fd, "200 OK", "application/json", json ? json : "{}", json ? n : 2);
+        free(json);
     } else {
         respond(fd, "404 Not Found", "text/plain", "not found\n", 10);
     }
+    free(req);
+}
+
+void status_set_admin(status_t *s, struct admin *a) { s->admin = a; }
+
+void status_set_remote(status_t *s, const char *host, int port)
+{
+    snprintf(s->remote_host, sizeof s->remote_host, "%s", host);
+    s->remote_port = host[0] ? port : 0;
 }
 
 static void *http_main(void *arg)
@@ -351,10 +555,14 @@ static void *http_main(void *arg)
         struct pollfd p = { s->lfd, POLLIN, 0 };
         if (poll(&p, 1, 250) <= 0)
             continue;
-        int fd = accept4(s->lfd, NULL, NULL, SOCK_CLOEXEC);
+        struct sockaddr_in from;
+        socklen_t fl = sizeof from;
+        int fd = accept4(s->lfd, (struct sockaddr *)&from, &fl, SOCK_CLOEXEC);
         if (fd < 0)
             continue;
-        serve(s, fd);
+        char peer[INET_ADDRSTRLEN] = "?";
+        inet_ntop(AF_INET, &from.sin_addr, peer, sizeof peer);
+        serve(s, fd, peer);
         close(fd);
     }
     return NULL;

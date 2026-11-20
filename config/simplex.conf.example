@@ -307,6 +307,12 @@ buffer_periods = 4         # sound card buffer, in 20 ms periods (2..16)
 
 [status]
 http_port     = 8080       # read-only status page (0 = off): http://<this box>:8080/
+admin         = true       # http://<this box>:8080/admin — the configuration in a
+                           # browser, restart, block receiver / transmitter, API
+                           # keys (/api/v1). One user, admin; the password is
+                           # admin until the first login, which has to change it,
+                           # and that first login works from a private address only.
+#admin_file   = /var/lib/tailchaser/admin-<role>.conf   # password, keys, blocks
 bind          = 0.0.0.0
 rssi_lo       = 79         # S-meter on the page: the raw SA818 RSSI shown as S1 ...
 rssi_hi       = 100        # ... and as S9+40 (uncalibrated: compare with a known signal).

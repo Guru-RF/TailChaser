@@ -148,6 +148,7 @@ default_tg = 8
 [receiver]
 host = 127.0.0.1:{port}
 auth_key = {KEY}
+status_port = {hp_rx}
 
 [radio]
 freq_tx = 438.800
@@ -183,6 +184,9 @@ bind = 127.0.0.1
               f"...and on its receiver, over the RemoteTrx link ({st['receiver']['peer']}, "
               f"protocol {st['receiver']['proto']}, {st['receiver']['codec']})")
         check(rx.status()["uplink"]["connected"], "the receiver shows the transmitter connected")
+        rr = tx.status().get("remote_receiver") or {}
+        check(rr.get("role") == "receiver" and rr.get("uplink", {}).get("connected") is True,
+              "the transmitter passes the receive site's status on: one place to ask for the whole repeater")
         grp = radio_tx.first("AT+DMOSETGROUP")
         check(grp is not None and "438.8000" in grp,
               f"SA818 of the transmitter: 438.800 MHz narrow  [{grp}]")

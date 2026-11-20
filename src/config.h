@@ -38,6 +38,8 @@ typedef struct {
     int  port;
     char auth_key[128];     /* the receiver's [uplink] auth_key                   */
     char codec[8];          /* S16 | RAW | OPUS: the audio from the receiver      */
+    int   status_port;      /* the receive site's status page: its status is passed on
+                             * in ours as "remote_receiver" (0 = not)                */
 } receiver_config_t;
 
 /* [siglev] — receiver: the signal level reported to the repeater (0..100) */
@@ -214,6 +216,8 @@ typedef struct {
 
 typedef struct {
     int  http_port;         /* status page; 0 = off                                 */
+    bool   admin;           /* /admin and /api on the same port                    */
+    char   admin_file[256]; /* password, API keys, blocks                           */
     char bind[48];
     int  rssi_lo;           /* S-meter on the page: raw SA818 RSSI shown as S1      */
     int  rssi_hi;           /*                      ... and as S9+40                */
