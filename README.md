@@ -60,7 +60,7 @@ talkgroup and on a split site. What is different is the scope and the defaults.
 | Identification | spoken, from sound files and TCL | Morse on the clock; spoken announcements from text, made once a day by an online voice |
 | Roger beep | TCL | built in, and it tells you where the over came from: "blop" local, "bleep blop" network |
 | Radio | any, wired by you | any — and an SA818 module is programmed by the daemon itself |
-| Setting up the audio | an oscilloscope, a deviation meter, or patience | built-in test tones and a tool that compares you with other repeaters on any web SDR (below) |
+| Setting up the audio | an oscilloscope, a deviation meter, or patience | every source is levelled by itself; the deviation is measured in Hz on any web SDR and the tool says what to change (below) |
 | Watching it | log file | a status page in every program, JSON for the rest |
 | Moving over | — | `bootstrap.sh … replace-svxlink` reads SvxLink's files, takes key and certificate along, and `rollback` goes back |
 | Size | C++, TCL, sound packs | about 12 000 lines of C, no interpreter in the daemon |
@@ -72,8 +72,65 @@ announcements from sound packs, APRS, scripting, voting between receivers
 ## Calibrating a repeater's audio without test equipment
 
 Getting a repeater to sound like the others on the talkgroup normally takes a
-deviation meter or a service monitor. TailChaser brings its own tools, and all
-they need is a web SDR that hears you.
+deviation meter or a service monitor. TailChaser needs neither: a web SDR that
+hears the transmitter is enough.
+
+It comes down to two things, and only one of them is yours to set.
+
+**1. Every source has one level — nothing to set.** Whatever is transmitted is
+brought to the same level before it reaches the modulator:
+
+| What is transmitted | Its level |
+|---|---|
+| a station on the input | normalised to `[audio] normalize_target_db` (per over) |
+| audio from the talkgroup | normalised to the same target (`[tx] normalize`) |
+| spoken announcements | `[announce] level_db` |
+| Morse, roger beep, test tones | their own fixed `level_db` |
+
+So a quiet station, a loud one, a SvxLink node that sends 10 dB too little:
+on the air they are alike, and there is no per-source gain to tune.
+
+**2. The deviation — set once, measured in Hz.** What is left is how far full
+level swings the transmitter. `tools/devcal.py` measures that on a web SDR and
+says what to change:
+
+```sh
+python3 tools/devcal.py --sdr http://your.websdr.example/ --profile 70cm \
+        --freq 438.800 --ctcss 131.8 --max-dev 2500 \
+        --trigger "ssh node sudo systemctl kill -s USR1 tailchaser-transmitter"
+```
+```
+carrier            +1030 Hz off (transmitter and SDR together)
+CTCSS 131.8 Hz     266 Hz deviation
+test tone 1000 Hz  625 Hz deviation at -20 dBFS
+full level (0 dBFS) would be 6250 Hz — wanted 2500 Hz
+change the transmit level by -8.0 dB: [tx] level_db -8.0 from what it is now
+```
+
+Set `[tx] level_db` (or the sound card, `[audio] playback_pct`), run it again,
+and it says "that is right". That is the whole alignment.
+
+How it can be exact without a calibrated receiver: the SDR listens to the
+carrier in SSB. There an FM signal is a row of tones — the carrier and, one
+tone-frequency apart, its sidebands — and how strong the sidebands are next to
+the carrier depends on the deviation alone (Bessel functions), not on the
+SDR's gain, its AGC or how strong the signal is. The test transmission sends
+1000 Hz at a known level with receiver and talkgroup muted, so nothing else is
+in it.
+
+- `--sdr` is any OpenWebRX receiver that hears you (or `TAILCHASER_SDR` in the
+  environment). `--profile` is part of the name of the band profile the
+  frequency is in; devcal moves its own connection to the SDR device that has
+  it, and never switches a profile — that would change it for everybody
+  listening. If the SDR is showing another band, it says so and stops.
+- `--max-dev`: 2500 for a 12.5 kHz channel (the default), 5000 for a 25 kHz one.
+- `--ctcss`: the tone's deviation is measured too (it is usually made by the
+  radio, so that one is set on the radio).
+- `--trigger` starts the test transmission; without it devcal asks you to.
+- Lowering the level makes the node quieter than neighbours that over-deviate
+  into their limiter. That is them, not you.
+
+The other tools:
 
 | Tool | What it answers |
 |---|---|
@@ -84,25 +141,17 @@ they need is a web SDR that hears you.
 | **`agctest`, `gatetest`, `vadtest`** — on recordings | What the normaliser and the gate would have done with real overs, before changing a live repeater. |
 | **Status page / `status.json`** | Live: receive level, tone level and margin, noise level, normaliser gain, S-meter. |
 
-A session goes like this:
+`sdrmon.py` is for the other question — how do we sound next to the
+neighbours:
 
 ```sh
-# 1. how do we compare with the neighbours, on the same talkgroup audio?
-python3 tools/sdrmon.py http://your.websdr.example/ --profile 70cm \
+python3 tools/sdrmon.py --sdr http://your.websdr.example/ --profile 70cm \
         --listen ON0AAA:131.8,ON0BBB,ON0CCC --seconds 240
-
-# 2. something exact: tones from our transmitter, measured on the SDR
-sudo systemctl kill -s USR1 tailchaser-transmitter
-
-# 3. adjust [audio] playback_pct (deviation) or [tx] level_db, repeat 2
-# 4. the input: read "rx: normaliser" and "net:" in the log, set
-#    [audio] normalize_target_db so both come out alike
 ```
 
-A web SDR's audio has passed its own filters and AGC, so its numbers are
-relative: compare with a repeater you trust, on the same receiver, rather than
-reading them as kHz of deviation. That is how ON0ORA and ON0DEN were set to
-within about 1 dB of each other.
+Its numbers come from the SDR's audio, which has passed the SDR's own filters
+and AGC: they compare stations on the same receiver, they are not kHz. For
+kHz, `devcal.py`.
 
 ## What all four have in common
 
@@ -171,6 +220,10 @@ the last overs with what the gate made of each, what was transmitted.
   it is heard: ON0OST → `OST` (`[repeater] net_call`). Other stations get
   none — the roger beep already says "network". The speech waits in a buffer
   meanwhile, so nothing is lost and nothing is added after the over;
+- **one level on the transmitter**: talkgroup audio is levelled like a station
+  on the input (`[tx] normalize`), announcements and Morse have their own fixed
+  levels — so the only thing left to set per site is the deviation
+  (`[audio] playback_pct`), once;
 - a **roger beep** follows every over: "blop" after a station on the input,
   "bleep blop" after one from the talkgroup — so you hear where it came from
   (`[repeater] roger_tones`, `roger_net_tones`);
@@ -428,7 +481,7 @@ Three signals put something on the air on request, each in a quiet moment:
 
 | Signal | Sends | Command |
 |---|---|---|
-| `USR1` | test tones: 1000 Hz, then 700 + 1900 Hz | `sudo systemctl kill -s USR1 tailchaser-<role>` |
+| `USR1` | test tones: 1000 Hz, then 700 + 1900 Hz — receiver and talkgroup are muted meanwhile | `sudo systemctl kill -s USR1 tailchaser-<role>` |
 | `USR2` | the next spoken announcement, now | `sudo systemctl kill -s USR2 tailchaser-<role>` |
 | `RTMIN+1` | this repeater's call in fast Morse, as other repeaters send it ("ORA") | `sudo systemctl kill -s RTMIN+1 tailchaser-<role>` |
 
@@ -483,7 +536,8 @@ src/status.c       status page
 config/            one example per program
 systemd/           one unit per program
 tools/             offline test tools, migration scripts, sdrmon.py (web SDR
-                   comparison), tailchaser-announce (the spoken announcements)
+                   comparison), devcal.py (deviation in Hz from a web SDR),
+                   tailchaser-announce (the spoken announcements)
 docs/              DETECTION.md (how the gate decides), the logo
 tests/             the hardware-free test suites
 ```

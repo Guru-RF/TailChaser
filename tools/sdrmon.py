@@ -336,7 +336,8 @@ class Stats:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("url")
+    ap.add_argument("url", nargs="?", help="the web SDR (an OpenWebRX receiver)")
+    ap.add_argument("--sdr", help="the same, as an option; or set TAILCHASER_SDR in the environment")
     ap.add_argument("--profile", help="part of the profile's name, e.g. 70cm-high")
     ap.add_argument("--switch", action="store_true",
                     help="select that profile if the receiver is on another one — for EVERYBODY listening to it")
@@ -350,6 +351,9 @@ def main():
     ap.add_argument("--wav", help="directory for one WAV per station (audio while a carrier was there)")
     a = ap.parse_args()
 
+    a.url = a.sdr or a.url or os.environ.get("TAILCHASER_SDR")
+    if not a.url:
+        ap.error("the SDR's address is needed (--sdr, or TAILCHASER_SDR)")
     rx = Receiver(a.url)
     rx.pump(4)
     if "center_freq" not in rx.config:

@@ -182,6 +182,10 @@ typedef struct {
     int   timeout_s;        /* longest single transmission (0 = no limit)           */
     int   rx_recover_ms;    /* squelch ignored this long after unkeying             */
     float gain_db;          /* software gain, reflector -> radio                    */
+    bool  normalize;        /* talkgroup audio is brought to [audio]
+                             * normalize_target_db like a station on the input:
+                             * everything that is transmitted has one level         */
+    float normalize_max_gain_db;
     float level_db;         /* software gain on everything that is transmitted      */
     float duck_db;          /* Morse and announcements are this much quieter while
                              * somebody is talking                                  */

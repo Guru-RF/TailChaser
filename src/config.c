@@ -35,6 +35,8 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->audio.normalize             = true;
     cfg->audio.normalize_target_db   = -20.0f;
     cfg->audio.normalize_max_gain_db = 30.0f;
+    cfg->tx.normalize                = true;
+    cfg->tx.normalize_max_gain_db    = 15.0f;
     cfg->audio.capture  = true;
     cfg->audio.playback = true;
 
@@ -550,6 +552,8 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "timeout_s"))     INT(cfg->tx.timeout_s);
         if (!strcmp(key, "rx_recover_ms")) INT(cfg->tx.rx_recover_ms);
         if (!strcmp(key, "gain_db"))       FLT(cfg->tx.gain_db);
+        if (!strcmp(key, "normalize"))     BOOL(cfg->tx.normalize);
+        if (!strcmp(key, "normalize_max_gain_db")) FLT(cfg->tx.normalize_max_gain_db);
         if (!strcmp(key, "level_db"))      FLT(cfg->tx.level_db);
         if (!strcmp(key, "duck_db"))       FLT(cfg->tx.duck_db);
         if (!strcmp(key, "preemphasis"))   BOOL(cfg->tx.preemphasis);
@@ -883,6 +887,8 @@ int config_validate(const config_t *cfg, const role_t *role)
         FAIL("config: [audio] playback_pct must be 0..100 (or keep)");
     if (cfg->audio.normalize_target_db > -3.0f || cfg->audio.normalize_target_db < -40.0f)
         FAIL("config: [audio] normalize_target_db must be -40..-3 (dBFS)");
+    if (cfg->tx.normalize_max_gain_db < 0.0f || cfg->tx.normalize_max_gain_db > 40.0f)
+        FAIL("config: [tx] normalize_max_gain_db must be 0..40");
     if (cfg->audio.normalize_max_gain_db < 0.0f || cfg->audio.normalize_max_gain_db > 40.0f)
         FAIL("config: [audio] normalize_max_gain_db must be 0..40");
 

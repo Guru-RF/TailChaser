@@ -116,6 +116,7 @@ check: $(BINS) dtmftest gatetest agctest ctcsstest
 	python3 tests/agc.py ./agctest
 	python3 tests/ctcss.py ./ctcsstest ./tailchaser-receiver
 	python3 tests/announce.py ./tailchaser-duplex tools/tailchaser-announce
+	python3 tools/devcal.py --selftest
 	python3 tests/e2e_receiver.py ./tailchaser-receiver
 	python3 tests/e2e_repeater.py ./tailchaser-receiver ./tailchaser-transmitter ./tailchaser-duplex
 	python3 tests/e2e_simplex.py ./tailchaser-simplex

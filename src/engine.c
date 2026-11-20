@@ -77,6 +77,7 @@ struct engine {
     noisemeter_t noise;
     int      noise_tick;
     agc_t    agc;               /* the normaliser on received audio            */
+    agc_t    net_agc;           /* ...and the one on talkgroup audio           */
     uint64_t over_since;        /* when the over on the receiver began         */
     float    remote_siglev;     /* transmitter: what its receiver reports      */
     int16_t  racc[AUDIO_MAX_FRAME];     /* audio from the receiver, being framed */
@@ -89,6 +90,7 @@ struct engine {
     int      rpt_frames;        /* frames of this over handed to the transmitter */
     bool     rpt_lockout;       /* this over ran into the time-out               */
     bool     beep_pending, beep_net;    /* a roger beep is due; after a talkgroup over */
+    bool     clip_mute;                 /* test tones: nothing else goes out with them */
     bool     call_due, clip_solo;       /* Morse for who is coming from the talkgroup; it plays alone */
     char     call_last[32];
     bool     own_tx;                    /* keyed for Morse or an announcement, nobody has talked since */
@@ -297,6 +299,7 @@ static void clip_drop(engine_t *e)
     free(e->clip);
     e->clip = NULL;
     e->clip_solo = false;
+    e->clip_mute = false;
     e->clip_n = e->clip_pos = 0;
 }
 
@@ -366,6 +369,7 @@ static void test_begin(engine_t *e)
     e->clip = pcm;
     e->clip_n = frames * e->frame;
     e->clip_pos = 0;
+    e->clip_mute = true;
     log_info("tx: test transmission — %d s of 1000 Hz, %d s of 700 + 1900 Hz, peak %.0f dBFS",
              e->cfg->tx.test_s / 2, e->cfg->tx.test_s - e->cfg->tx.test_s / 2,
              (double)e->cfg->tx.test_level_db);
@@ -571,6 +575,12 @@ static void feed(engine_t *e)
     int16_t out[AUDIO_MAX_FRAME];
     while (audio_tx_queued(e->audio) < FIFO_TARGET) {
         bool have = false;
+        /* A test transmission is for measuring: the receiver and the
+         * talkgroup are kept out of it until the tones are over. */
+        if (e->clip && e->clip_mute) {
+            rptq_clear(e);
+            netq_clear(e);
+        }
         /* A repeater sends what its receiver hears first. Talkgroup audio that
          * came in at the same time is not sent: the station on the input wins. */
         if (e->rq_len > 0 && (e->rpt_hold == 0 || e->rq_len >= JITTER_FRAMES || !e->local_over)) {
@@ -773,6 +783,7 @@ static void net_over_begin(engine_t *e)
 {
     e->net_active = true;
     lvl_reset(&e->net_lvl);
+    agc_begin_over(&e->net_agc);
     memset(&e->over, 0, sizeof e->over);
     e->over.tg = e->sel_tg;
     snprintf(e->over.call, sizeof e->over.call, "%s", e->talker);
@@ -808,8 +819,12 @@ static void net_over_end(engine_t *e)
         e->beep_at = e->t_ms + (uint64_t)e->cfg->repeater.roger_delay_ms;
     }
     int ms = o->frames * e->frame_ms;
-    log_info("net: %s on TG %u, %.1f s [level %.0f dBFS, peak %.0f] — %s", o->call[0] ? o->call : "?",
-             (unsigned)o->tg, ms / 1000.0, (double)lvl_db(&e->net_lvl), (double)lvl_peak_db(&e->net_lvl),
+    char lev[48] = "";
+    float nin, ngain;
+    if (e->cfg->tx.normalize && agc_over_stats(&e->net_agc, &nin, &ngain))
+        snprintf(lev, sizeof lev, ", levelled %+.0f dB", (double)ngain);
+    log_info("net: %s on TG %u, %.1f s [level %.0f dBFS, peak %.0f%s] — %s", o->call[0] ? o->call : "?",
+             (unsigned)o->tg, ms / 1000.0, (double)lvl_db(&e->net_lvl), (double)lvl_peak_db(&e->net_lvl), lev,
              o->timed_out ? "cut by the transmit time-out"
              : o->lost == 0 ? "transmitted"
              : o->lost == o->frames ? "NOT transmitted: a station was on the frequency"
@@ -855,6 +870,8 @@ static void net_frame(engine_t *e, int16_t *pcm)
         /* RX_UNSURE: the squelch is open but nothing says it is a voice. Keep
          * the audio; tx_tick() keys or drops it once the gate has decided. */
     }
+    /* one level for everything that is transmitted, wherever it comes from */
+    agc_process(&e->net_agc, pcm, e->frame);
     if (e->tx_gain != 1.0f)
         for (int i = 0; i < e->frame; i++)
             pcm[i] = sat16((float)pcm[i] * e->tx_gain);
@@ -1600,6 +1617,9 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
     ap.target_db   = cfg->audio.normalize_target_db;
     ap.max_gain_db = cfg->audio.normalize_max_gain_db;
     agc_init(&e->agc, &ap);
+    ap.enabled     = cfg->tx.normalize;
+    ap.max_gain_db = cfg->tx.normalize_max_gain_db;
+    agc_init(&e->net_agc, &ap);
     txshape_init(&e->shape, cfg->audio.sample_rate, cfg->tx.preemphasis, cfg->tx.limit_db);
 
     e->netq  = malloc(sizeof(int16_t) * (size_t)NETQ_FRAMES * (size_t)e->frame);

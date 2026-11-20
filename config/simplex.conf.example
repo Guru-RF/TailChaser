@@ -155,6 +155,9 @@ timeout_s     = 360        # Longest single transmission. After it the carrier d
                            # stays down until that talkgroup over has ended. 0 = no limit.
 rx_recover_ms = 300        # The receiver is ignored while transmitting and for this long
                            # after: the chip's squelch bounces when it goes back to receive.
+normalize     = true       # talkgroup audio is brought to [audio] normalize_target_db,
+                           # like a station on the input: everything that is
+normalize_max_gain_db = 15 # transmitted has one level, whoever sent it
 gain_db       = 0          # software gain on talkgroup audio before it is transmitted
 level_db      = 0          # software gain on everything that is transmitted — speech,
                            # beeps, Morse, test tones (SvxLink: MASTER_GAIN)
