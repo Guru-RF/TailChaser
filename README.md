@@ -711,7 +711,7 @@ Three signals put something on the air on request, each in a quiet moment:
 ## Building and testing
 
 ```sh
-make                  # all four, on the Pi
+make                  # all five, on the Pi
 make NOGPIO=1         # on a desktop: no libgpiod, file audio only
 make NOGPIO=1 check   # everything that needs no hardware (python3 + openssl), ~3 min
 ```
