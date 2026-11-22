@@ -537,6 +537,14 @@ box as the repeater, or anywhere else.
        --freq 438.800 --trigger "systemctl kill -s USR1 tailchaser-transmitter"
   ```
 
+  That is for an OpenWebRX receiver. A KiwiSDR, a Web-888 and an UberSDR are
+  timed on the time signal DCF77 instead (Europe), with nothing transmitted:
+  `python3 tools/sdrlag.py --type kiwisdr --sdr http://kiwi.example:8073`.
+  Measured in November 2026, the receiver and the internet without our own
+  buffer: OpenWebRX about 0.7 s, KiwiSDR and Web-888 60–90 ms, UberSDR about
+  30 ms. Add `[sdr] buffer_ms` (300) and, with a tone squelch, `[ctcss]
+  delay_ms` (300); sdrlag does that sum (`--buffer-ms`, `--ctcss-delay-ms`).
+
   Without `lag_ms` the voter learns the delay from the overs two receivers
   share (`voter.receivers[].lag_ms` in `/status.json` shows what it has); with
   it, the late copy of an over is known for what it is from the first over

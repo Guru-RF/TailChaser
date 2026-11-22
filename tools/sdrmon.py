@@ -110,11 +110,12 @@ class Adpcm:
 
 
 class Ws:
-    def __init__(self, url):
+    def __init__(self, url, path=None):
+        """path: where the websocket is on that server (OpenWebRX: <url>/ws/)."""
         u = urllib.parse.urlparse(url if "://" in url else "http://" + url)
         tls = u.scheme in ("https", "wss")
         host, port = u.hostname, u.port or (443 if tls else 80)
-        path = (u.path if u.path.endswith("/") else u.path + "/") + "ws/"
+        path = path or (u.path if u.path.endswith("/") else u.path + "/") + "ws/"
         s = socket.create_connection((host, port), timeout=10)
         if tls:
             s = ssl.create_default_context().wrap_socket(s, server_hostname=host)

@@ -2,7 +2,7 @@
 /* KiwiSDR and Web-888 (the same protocol; a Web-888 has other audio rates).
  * Part of sdr.c.
  *
- *   ws://host:8073/<time>/SND
+ *   ws://host:8073/kiwi/<time>/SND     (a KiwiSDR 2 answers nothing without "/kiwi")
  *   we send text:  SET auth..., SET AR OK..., SET mod=nbfm..., SET keepalive
  *   it sends binary, a 3-letter tag first:
  *     "MSG key=value key=value"
@@ -26,7 +26,7 @@ static int kiwi_open(sdr_t *s)
 {
     char path[220];
     size_t l = strlen(s->path);
-    snprintf(path, sizeof path, "%.*s/%ld/SND", (int)(l && s->path[l - 1] == '/' ? l - 1 : l), s->path,
+    snprintf(path, sizeof path, "%.*s/kiwi/%ld/SND", (int)(l && s->path[l - 1] == '/' ? l - 1 : l), s->path,
              (long)util_wall_time());
     if (ws_handshake(s, path, NULL) != 0)
         return -1;
@@ -98,8 +98,17 @@ static int kiwi_message(sdr_t *s, int op, uint8_t *p, size_t n)
     const char *t = (const char *)p + 3;
     char v[160];
     if (kiwi_kv(t, "too_busy", v, sizeof v)) {
-        say(s, false, false, "%s is full (%s listeners)", s->host, v);
-        s->retry_s = 120;
+        if (atoi(v) == 0) {
+            /* sent ten seconds in, then the connection is closed: the number
+             * of channels its owner gives to programs that are not the
+             * receiver's own web page — none */
+            say(s, false, false, "%s lets no programs listen, only its own web page (its owner's setting) — "
+                "ask the owner, or take another receiver", s->host);
+            s->retry_s = 3600;
+        } else {
+            say(s, false, false, "%s is full (%s listeners)", s->host, v);
+            s->retry_s = 120;
+        }
         return -1;
     }
     if (kiwi_kv(t, "badp", v, sizeof v) && atoi(v) != 0) {
