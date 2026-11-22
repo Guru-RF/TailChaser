@@ -382,11 +382,14 @@ bind = 127.0.0.1
           "the transmission the station keyed into ends with their blop and the hang time")
     s, e_ = b[1]
     t_beep, beep_len, hz = beep_of(rec, s, e_)
-    check(bleep_blop(rec, t_beep, beep_len), f"the talkgroup over ended with bleep blop ({tones(rec, t_beep, beep_len)})")
-    who = next((w for w in (rec.morse(s + 0.15, s + t, 800, 34)[0] for t in (1.0, 1.1, 1.2, 1.3, 1.5, 1.7)) if w == "OST"),
-               rec.morse(s + 0.15, s + 1.2, 800, 34)[0])       # the Morse, before the speech that follows it
-    check(who == "OST", f"...and began with the repeater it came from, in Morse: ON0OST is \"{who}\"")
-
+    # the repeater it came from, in Morse after the over — and then no beep
+    who = next((w for w in (rec.morse(s + t, e_, 800, 34)[0] for t in (1.3, 1.4, 1.5, 1.6, 1.7, 1.2)) if w == "OST"),
+               rec.morse(s + 1.4, e_, 800, 34)[0])
+    check(who == "OST", f"the talkgroup over ended with the repeater it came from, in Morse: ON0OST is \"{who}\"")
+    first = groups(rec, s, e_)[0][0] if groups(rec, s, e_) else e_
+    check(first - s < 0.45, f"...and its speech did not wait for that: it began {first - s:.2f} s after the carrier (TX delay 0.2 s)")
+    check(not bleep_blop(rec, t_beep, beep_len),
+          f"...and no bleep blop after it: the Morse says it came over the network (last sound: {tones(rec, t_beep, beep_len)})")
 
 def main():
     exes = sys.argv[1:4]

@@ -216,11 +216,14 @@ the last overs with what the gate made of each, what was transmitted.
   status page say so);
 - the carrier comes up `[tx] delay_ms` (300) before the audio — nothing is
   lost, the audio waits — and stays up `hang_ms` (3000) after the last audio;
-- **which repeater is coming from the network** is sent in fast Morse before
-  it is heard: ON0OST → `OST` (`[repeater] net_call`, 34 wpm), and only when
-  it is another repeater than the one announced last. Other stations get
-  none — the roger beep already says "network". The speech waits in a buffer
-  meanwhile, so nothing is lost and nothing is added after the over;
+- **which repeater an over from the network came through** is sent in fast
+  Morse after it: ON0OST → `OST` (`[repeater] net_call`, 34 wpm), in place of
+  the "bleep blop", which is left for stations that are not on a repeater. A
+  station on the repeater's own input gets the roger beep. The Morse is
+  dropped when somebody talks again before it. `net_call_when = before` sends
+  it ahead of the over instead (the speech waits in a buffer, and the bleep
+  blop follows the over); `net_call_once = true` only when it is another
+  repeater than the one sent last;
 - **one level on the transmitter**: talkgroup audio is levelled like a station
   on the input (`[tx] normalize`), announcements and Morse have their own fixed
   levels — so the only thing left to set per site is the deviation

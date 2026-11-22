@@ -119,6 +119,8 @@ struct engine {
     bool     beep_pending, beep_net;    /* a roger beep is due; after a talkgroup over */
     bool     clip_mute;                 /* test tones: nothing else goes out with them */
     bool     call_due, clip_solo;       /* Morse for who is coming from the talkgroup; it plays alone */
+    bool     beep_call, clip_after;     /* after the over: that Morse in place of the beep; it is playing */
+    char     beep_who[32];
     char     call_last[32];
     bool     own_tx;                    /* keyed for Morse or an announcement, nobody has talked since */
     bool     ann_due;                   /* a spoken announcement is waiting           */
@@ -346,6 +348,7 @@ static void clip_drop(engine_t *e)
     free(e->clip);
     e->clip = NULL;
     e->clip_solo = false;
+    e->clip_after = false;
     e->clip_mute = false;
     e->clip_n = e->clip_pos = 0;
 }
@@ -601,7 +604,7 @@ static void call_begin(engine_t *e)
 {
     e->call_due = false;
     const char *call = e->over.call[0] ? e->over.call : e->talker;
-    if (call[0] && !strcasecmp(call, e->call_last))
+    if (e->cfg->repeater.net_call_once && call[0] && !strcasecmp(call, e->call_last))
         return;                                 /* the repeater that was announced last: not again */
     call_send(e, call);
     if (e->clip)                                /* it was announced: remembered until another one comes */
@@ -644,7 +647,7 @@ static void call_send(engine_t *e, const char *call)
     e->clip_n = frames * e->frame;
     e->clip_pos = 0;
     e->clip_solo = true;
-    log_debug("net: %s is coming — \"%s\" in Morse first", call[0] ? call : "?", clean);
+    log_debug("net: %s — \"%s\" in Morse", call[0] ? call : "?", clean);
 }
 
 static void feed(engine_t *e)
@@ -817,7 +820,19 @@ static void tx_tick(engine_t *e)
             e->beep_at = e->t_ms + (uint64_t)e->cfg->repeater.roger_delay_ms;
         else if (!e->clip && e->rq_len == 0 && e->nq_len == 0 && e->t_ms >= e->beep_at) {
             e->beep_pending = false;
-            beep_begin(e, e->beep_net);
+            bool said = false;
+            if (e->beep_net && e->beep_call &&
+                !(e->cfg->repeater.net_call_once && e->beep_who[0] && !strcasecmp(e->beep_who, e->call_last))) {
+                call_send(e, e->beep_who);
+                if (e->clip) {
+                    said = true;
+                    e->clip_solo = false;       /* nothing waits for it */
+                    e->clip_after = true;
+                    snprintf(e->call_last, sizeof e->call_last, "%s", e->beep_who);
+                }
+            }
+            if (!said && (!e->beep_net || (e->cfg->repeater.roger_beep && e->cfg->repeater.roger_net_beep)))
+                beep_begin(e, e->beep_net);
         }
     }
 
@@ -870,7 +885,10 @@ static void net_over_begin(engine_t *e)
     e->n_net_overs++;
     /* which repeater it is, in Morse, before it is heard — when it is another
      * one than was announced last */
-    e->call_due = e->role->repeater && e->cfg->repeater.net_call;
+    e->call_due = e->role->repeater && e->cfg->repeater.net_call && !e->cfg->repeater.net_call_after;
+    /* the Morse of the over before this one, still playing: the speech does not wait for it */
+    if (e->clip && e->clip_after)
+        clip_drop(e);
 }
 
 static void net_over_end(engine_t *e)
@@ -896,10 +914,15 @@ static void net_over_end(engine_t *e)
     if (o->lost > 0 && !o->timed_out)
         e->n_net_blocked++;
     /* what was transmitted of a talkgroup over ends with "bleep blop" */
-    if (e->role->repeater && e->cfg->repeater.roger_beep && e->cfg->repeater.roger_net_beep &&
+    /* ...or, after it, with which repeater that was, in Morse ([repeater]
+     * net_call_when = after): then no beep — unless it has no letters to send */
+    bool call_after = e->cfg->repeater.net_call && e->cfg->repeater.net_call_after;
+    if (e->role->repeater && (call_after || (e->cfg->repeater.roger_beep && e->cfg->repeater.roger_net_beep)) &&
         !o->timed_out && o->frames > o->lost && e->tx != TX_OFF && !e->local_over) {
         e->beep_pending = true;
         e->beep_net = true;
+        e->beep_call = call_after;
+        snprintf(e->beep_who, sizeof e->beep_who, "%s", o->call[0] ? o->call : e->talker);
         e->beep_at = e->t_ms + (uint64_t)e->cfg->repeater.roger_delay_ms;
     }
     int ms = o->frames * e->frame_ms;

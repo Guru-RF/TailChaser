@@ -201,20 +201,31 @@ test_level_db = -20        #   sudo systemctl kill -s USR1 tailchaser-<role>
                            # at this peak level — as soon as the transmitter is free.
 
 [repeater]
+# After an over the repeater answers. A station on its own input: the roger
+# beep. An over from the talkgroup: which repeater it came through, in fast
+# Morse — or, for a station that is not on a repeater, "bleep blop".
 roger_beep    = true       # "blop" after every over that was repeated: the repeater
                            # heard you, the next one can go
 roger_tones   = 800        # its pitch in Hz — or several, one after the other
-roger_net_beep = true      # "bleep blop" after an over from the talkgroup: that one
-roger_net_tones = 1200, 800  # came in over the network
+roger_net_beep = true      # "bleep blop" after an over from the talkgroup that gets
+roger_net_tones = 1200, 800  # no Morse (below): that one came in over the network
 roger_delay_ms = 200       # this long after the over
-net_call      = true       # Which repeater is coming from the talkgroup, in fast
-                           # Morse before it is heard: ON0OST by the letters after
-net_call_prefix = ON0      # this prefix — "OST". Other stations get none (the
-net_call_wpm  = 34         # roger beep says "network"). Sent only when it is another
-net_call_pitch_hz = 800    # repeater than the last one announced; the speech waits.
+net_call      = true       # Which repeater an over from the talkgroup came through,
+                           # in fast Morse: ON0OST by the letters after
+net_call_prefix = ON0      # this prefix — "OST". Other stations get none.
+net_call_when = after      # after = when the over has ended, in place of the bleep
+                           # blop; the speech starts at once, and the Morse is
+                           # dropped when somebody talks again first.
+                           # before = ahead of the over: the speech waits for it,
+                           # and the bleep blop follows the over as well.
+net_call_once = false      # true = only when it is another repeater than the one
+                           # sent last (a conversation through one repeater is
+                           # announced once)
+net_call_wpm  = 34
+net_call_pitch_hz = 800
 net_call_level_db = -20
-net_call_lead_ms = 600     # silence first when the transmitter was off: the
-                           # listeners' squelch has to open
+net_call_lead_ms = 600     # (before) silence first when the transmitter was off:
+                           # the listeners' squelch has to open
 roger_ms      = 70         # each tone
 roger_gap_ms  = 20         # silence between them
 roger_level_db = -18       # dBFS

@@ -109,7 +109,9 @@ typedef struct {
     int   roger_delay_ms;
     int   roger_tones[CFG_MAX_ROGER];   /* after a station on the input: "blop"          */
     int   roger_n;
-    bool  net_call;                     /* Morse before an over from the talkgroup: who  */
+    bool  net_call;                     /* Morse with an over from the talkgroup: who    */
+    bool  net_call_after;               /* ...after it (and then no beep), not before it */
+    bool  net_call_once;                /* ...only when it is another repeater than the last one sent */
     int   net_call_wpm, net_call_pitch_hz, net_call_lead_ms;
     float net_call_level_db;
     char  net_call_prefix[12];          /* "ON0": ON0OST is sent as OST                  */
