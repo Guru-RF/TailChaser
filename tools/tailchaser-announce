@@ -317,7 +317,9 @@ def main():
         # %PAUSE: each part is spoken on its own and they are joined with
         # silence — the same with every voice service, and a part that comes
         # back every time ("This is ...") is asked for once.
-        parts = [p.strip(" ,;") for p in text.split("%PAUSE")]
+        # What is written at the end of a part stays: "This is %CALL, %PAUSE"
+        # is said as a sentence that goes on, not as one that is cut off.
+        parts = [p.lstrip(" ,;").rstrip() for p in text.split("%PAUSE")]
         gap = [0] * int(RATE * float(one(conf, "announce", "pause_ms", "1000")) / 1000)
         kept = ""
         try:
