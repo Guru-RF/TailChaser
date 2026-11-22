@@ -66,6 +66,7 @@ typedef struct {
     char   ctcss_rx[12], ctcss_tx[12];
     int    squelch;
     bool   monitor;                     /* [status] monitor */
+    bool   sdr_local;                   /* ...one on the USB port here */
     bool   has_sdr;                     /* the receiver is a web SDR */
     char   sdr_type[16], sdr_url[256], sdr_state[160], sdr_server[96];
     bool   sdr_connected, sdr_listening;
@@ -94,7 +95,8 @@ typedef struct {
         netrx_status_t link;
         char  name[24];
         float siglev;
-        bool  open, ignored;
+        bool  open, ignored, lag_set;
+        int   lag_ms;
         unsigned long won;
     } receivers[4];
     int    n_receivers, voter_active;  /* -1 nobody, 0 the receiver here, 1+i    */

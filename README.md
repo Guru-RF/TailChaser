@@ -493,11 +493,13 @@ input only.
 
 ## More receivers: voting, and a receiver on a web SDR
 
-A repeater or a node can listen with more than one receiver. Besides its own
-— the radio in the box, or a transmit site's `[receiver]` — it takes up to
-three or four others (`[receiver2]`, …): a `tailchaser-receiver` on another
-hill, or a **`tailchaser-sdrreceiver`**: a receiver without a radio, that
-listens to the frequency on a web SDR.
+A repeater or a node can listen with more than one receiver. Up to four
+receivers elsewhere, `[receiver]` and `[receiver2]` to `[receiver4]`, of
+either kind and in any mix: a `tailchaser-receiver` on another hill, or a
+**`tailchaser-sdrreceiver`**: a receiver without a radio, that listens to
+the frequency on a web SDR. A duplex or simplex node has them next to the
+radio in the box (five in all); a transmit site has nothing else — and its
+only receiver may well be a web SDR: a repeater with no receiver of its own.
 
 ```
                         ┌─ the receiver in the box / the receive site
@@ -521,7 +523,25 @@ box as the repeater, or anywhere else.
 
 - The receiver that hears a station first has the over.
 - Another one takes it when it hears the station clearly better for a while
-  (`margin`, `hold_ms`; `switch = false` turns that off).
+  (`margin`, `hold_ms`; `switch = false` turns that off) — but only between
+  receivers that are in step. A web SDR, a second or more behind, never takes
+  a running over: the listener would hear the last words twice
+  (`switch_lag_ms`). It is there for what the other receivers do not hear.
+- **How far behind a web SDR is** does not change from over to over, so it can
+  be measured once and written down: `lag_ms` in that receiver's section.
+  `tools/sdrlag.py`, run on the node, starts the test transmission, listens to
+  the transmitter on the web SDR and times the tone:
+
+  ```sh
+  sudo python3 tools/sdrlag.py --sdr http://your.websdr.example/ --profile 70cm-high \
+       --freq 438.800 --trigger "systemctl kill -s USR1 tailchaser-transmitter"
+  ```
+
+  Without `lag_ms` the voter learns the delay from the overs two receivers
+  share (`voter.receivers[].lag_ms` in `/status.json` shows what it has); with
+  it, the late copy of an over is known for what it is from the first over
+  on, and a simplex node stops ignoring that receiver exactly that long after
+  its own transmission instead of `tx_blank_ms`.
 - A receiver on the internet is late — a web SDR by a second or two. What it
   still brings of an over that has ended on another receiver is the same over,
   and is not repeated; only when it goes on for longer than it was late is it
@@ -536,6 +556,61 @@ and how many each has had; the log says where every over came from.
 Not tested against the real thing yet: KiwiSDR, Web-888 and UberSDR are
 written from their source code and tested against stand-ins only. OpenWebRX
 is tested on a live receiver.
+
+## A receiver on the USB port: RTL-SDR and HydraSDR RFOne
+
+A receive site does not have to be an SA818 or a radio on a sound card. With
+an `[sdr]` section, `tailchaser-receiver` listens with an SDR on the USB port:
+
+```ini
+[sdr]
+type = rtlsdr        # or hydrasdr
+freq = 431.200       # the repeater's input
+```
+
+The radio's own command line tool gives the samples (`rtl_sdr` from the
+`rtl-sdr` package, `hydrasdr_rx` from
+[hydrasdr/rfone_host](https://github.com/hydrasdr/rfone_host)); no library of
+either is linked. The FM receiver is made in TailChaser: the channel is
+mixed out of the spectrum, filtered, demodulated and de-emphasised. From
+there on it is the receive site you know — squelch and signal strength from
+the hiss as with a web SDR, `[ctcss] detect` for the tone, the gate, the
+link to the repeater, voting. Nothing is late: such a receiver is in step
+with the others, so the voter may hand it a running over. No sound card, no
+hat, no GPIO: any Linux box with a USB port will do, and
+`tailchaser-sdrreceiver` takes the same two types.
+
+The two are not the same kind of radio:
+
+| | RTL-SDR (Blog V3 / V4 and the like) | HydraSDR RFOne |
+|---|---|---|
+| What it is | a TV stick put to better use: **the budget receiver** | a measuring receiver: **the engineering one** |
+| Converter | 8 bit — about 50 dB between the weakest and the strongest signal it can hold at once | 12 bit at 20 MS/s — 80 dB dynamic range, 10.4 effective bits |
+| Front end | a tuner chip and nothing before it | tracking filters before the tuner; 3.5 dB noise figure, +35 dBm IIP3 |
+| Frequency | 1 ppm with a TCXO (ask for one: a stick without is 20 kHz off on 70 cm; `ppm` corrects) | 0.5 ppm, and a 10 MHz reference input for a GPSDO |
+| Range | about 24–1766 MHz | 24–1800 MHz, three antenna inputs |
+| Samples | 240 kS/s is enough here: little processor, a Pi Zero does it | 2.5 MS/s at least: wants a Pi 4 or better |
+| Extras | bias tee (V3 / V4) | bias tee, clock outputs, GPIO, expansion boards |
+| Price | a few tens of euros | several times that |
+
+What that means on a hill:
+
+- **RTL-SDR**: fine where the band is quiet — a receive site of its own, away
+  from the transmitter, or a fill-in receiver in a valley. On a site with a
+  transmitter, pagers or broadcast next door it goes deaf when they key: 8
+  bits cannot hold a strong signal and a weak one together. A cavity or a
+  band-pass filter in front of it is not a luxury.
+- **HydraSDR RFOne**: for the site where that matters, and for the receiver
+  you want to trust the numbers of. Its filters and its range of 80 dB keep a
+  weak station readable next to a strong neighbour, and with a GPSDO it is on
+  frequency for good.
+
+TailChaser uses both for the same thing, one narrow FM channel. The
+difference is in what the radio can stand, not in what the program does.
+
+Not tested on the real thing yet: both are written from the tools' source
+and tested against a stand-in that gives the same samples. The receive chain
+itself — squelch, tone, level, timing — is tested with those.
 
 ## The admin portal and the API
 
@@ -636,11 +711,13 @@ src/audio.c mixer.c sa818.c serial_worker.c gpio*.c      the hardware
 src/sdr.c sdr_kiwi.inc sdr_uber.inc   the web SDR client: OpenWebRX, KiwiSDR / Web-888, UberSDR
 src/status.c       status page, the HTTP server
 src/monitor.c      listening in: the audio over a websocket
+src/sdr_local.inc  an SDR on the USB port: RTL-SDR, HydraSDR RFOne (the FM receiver)
 src/admin.c admin.html   the admin portal and the API
 config/            one example per program
 systemd/           one unit per program
 tools/             offline test tools, migration scripts, sdrmon.py (web SDR
                    comparison), devcal.py (deviation in Hz from a web SDR),
+                   sdrlag.py (how far behind a web SDR is),
                    tailchaser-announce (the spoken announcements)
 docs/              DETECTION.md (how the gate decides), API.md, the logo
 tests/             the hardware-free test suites

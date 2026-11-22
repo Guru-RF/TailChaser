@@ -423,7 +423,19 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     static config_t config;
     config_t *cfg = &config;
     config_defaults(cfg, role);
-    if (config_load(cfg, cfgpath) != 0) {
+    int loaded = config_load(cfg, cfgpath);
+    if (loaded == 0 && role->id == ROLE_RECEIVER && cfg->sdr_set) {
+        /* a receive site with an [sdr] section: its receiver is that SDR — one on
+         * the USB port, or a web SDR — and not a radio on the sound card. The
+         * same program, with the defaults of a receiver that makes its own squelch. */
+        static role_t with_sdr;
+        with_sdr = *role;
+        with_sdr.sdr = true;
+        role = &with_sdr;
+        config_defaults(cfg, role);
+        loaded = config_load(cfg, cfgpath);
+    }
+    if (loaded != 0) {
         log_error("failed to load config %s", cfgpath);
         /* -u goes on with what could be read: a typo in the file must never
          * be the reason a transmitter stays keyed */
@@ -484,7 +496,10 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
     log_info("board: %s", detect_pi_model(model, sizeof model));
 
     if (role->sdr && !file_input) {
-        log_info("receiver: a web SDR — %s at %s, %.4f MHz", cfg->sdr.type, cfg->sdr.url, cfg->sdr.freq_hz / 1e6);
+        if (config_sdr_local(cfg))
+            log_info("receiver: an SDR on the USB port — %s, %.4f MHz", cfg->sdr.type, cfg->sdr.freq_hz / 1e6);
+        else
+            log_info("receiver: a web SDR — %s at %s, %.4f MHz", cfg->sdr.type, cfg->sdr.url, cfg->sdr.freq_hz / 1e6);
     } else if (file_input) {
         /* Bench mode: no radio, no GPIO, no sound card. */
         log_warn("audio is a FILE (%s) — radio hardware is not used", cfg->audio.alsa_device);
@@ -663,7 +678,9 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
         if (!rxlinks[k])
             goto done;
         n_rxl = k + 1;
-        engine_add_rxlink(eng, rxlinks[k], rcv->name, rcv->siglev_offset);
+        engine_add_rxlink(eng, rxlinks[k], rcv->name, rcv->siglev_offset, rcv->lag_ms);
+        if (rcv->lag_ms > 0)
+            log_info("voter: %s is %d ms behind (set: [receiver%.0d] lag_ms)", rcv->name[0] ? rcv->name : "a receiver", rcv->lag_ms, k ? k + 1 : 0);
     }
     if (n_rxl > 1 || (role->rx && n_rxl > 0))
         log_info("voter: %d receiver%s elsewhere%s — the one that hears a station first has the over, a better one takes it",
@@ -681,7 +698,8 @@ int tailchaser_main(role_id_t role_id, int argc, char **argv)
         status_snapshot_t *d = status_lock(status);
         d->has_sdr = true;
         snprintf(d->sdr_type, sizeof d->sdr_type, "%.15s", cfg->sdr.type);
-        snprintf(d->sdr_url, sizeof d->sdr_url, "%.255s", cfg->sdr.url);
+        snprintf(d->sdr_url, sizeof d->sdr_url, "%.255s", config_sdr_local(cfg) ? "usb" : cfg->sdr.url);
+        d->sdr_local = config_sdr_local(cfg);
         status_unlock(status);
     }
     if (audio_start(audio) != 0) {

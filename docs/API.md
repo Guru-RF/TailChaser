@@ -64,8 +64,8 @@ key. What a small device wants from it:
 | `link.connected` `link.tg` `link.home_tg` `link.talker` | the talkgroup link: logged in, talkgroup now, talkgroup at rest, who is talking (`""` = nobody) |
 | `receiver.connected` `receiver.squelch` `receiver.siglev` | a transmit site: its link to the receive site |
 | `voter.active` | who has the over: `-1` nobody, `0` the receiver in the box, `1`… the first, second… of `voter.receivers` |
-| `voter.receivers[]` | the receivers elsewhere this node votes with: `name`, `peer`, `connected`, `squelch`, `ignored` (open, but not listened to: a late copy, or the node's own transmitter), `siglev`, `active`, `overs` |
-| `sdr` | a tailchaser-sdrreceiver only: `type`, `url`, `connected`, `listening`, `state` (in words), `smeter_db` (the SDR's own meter), `buffer_ms`, `rate`, `connects`, `underruns`, `dropped_ms` |
+| `voter.receivers[]` | the receivers elsewhere this node votes with: `name`, `peer`, `connected`, `squelch`, `ignored` (open, but not listened to: a late copy, or the node's own transmitter), `siglev`, `active`, `overs`, `lag_ms` (how far behind it is, 0 = not seen yet), `lag_set` (true: from `[receiverN] lag_ms`; false: learned from shared overs) |
+| `sdr` | a receiver that listens with an SDR (tailchaser-sdrreceiver, or a tailchaser-receiver with an `[sdr]` section): `type`, `local` (true: an RTL-SDR or HydraSDR on the USB port; false: a web SDR), `url`, `connected`, `listening`, `state` (in words), `smeter_db` (a web SDR's own meter; on USB the channel power in dB below full scale), `buffer_ms`, `rate`, `connects`, `underruns`, `dropped_ms` |
 | `noise.level_db` | the hiss above the speech band, dBFS — what an SDR receiver's squelch and signal strength are made from |
 | `remote_receiver` | a transmit site: the receive site's whole status (the same fields), or `null` when it does not answer |
 | `history[]` | the last squelch openings: `t`, `ms`, `pass`, `like`, `level_db`, `rssi`, `tg`, `sent` |

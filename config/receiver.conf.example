@@ -43,6 +43,27 @@ rssi_hi       = 100                        # ... and as 100. An SA818PRO reads h
                                            #   try 102 and 190.
 fixed         = 50                         # the value for mode = fixed
 
+# Instead of a radio on the sound card: an SDR on the USB port. With an [sdr]
+# section this program listens with that — [radio], [audio] and the squelch
+# line are not used, and the squelch and the signal strength are made from the
+# hiss of the channel (see config/sdrreceiver.conf.example: squelch_open_db ...).
+# The radio's own tool must be installed: rtl_sdr (apt install rtl-sdr) or
+# hydrasdr_rx (github.com/hydrasdr/rfone_host).
+#[sdr]
+#type         = rtlsdr       # rtlsdr: an RTL-SDR with a TCXO (RTL-SDR Blog V3 / V4, ...)
+                             # hydrasdr: a HydraSDR RFOne
+#freq         = 431.200      # MHz: the frequency to listen on (a repeater: its INPUT)
+#bandwidth    = narrow       # narrow (12.5 kHz channel) | wide (25 kHz)
+#gain         = auto         # rtlsdr: tuner gain in dB (auto, or 0..49.6)
+                             # hydrasdr: linearity gain 0..21 (12 when not set)
+#ppm          = 0            # frequency correction. A dongle without TCXO is 20 kHz off on 70 cm.
+#device       =              # more than one on the box: rtlsdr index or serial, hydrasdr serial
+#bias_tee     = false        # power for a preamplifier at the antenna
+#sample_rate  =              # 240000 (rtlsdr), 2500000 (hydrasdr). hydrasdr_rx lists what the
+                             # radio offers; a lower rate costs less processor.
+#offset_hz    =              # the radio is tuned this far beside the channel (a quarter of
+                             # the sample rate): its own centre is not clean
+
 [radio]
 type          = sa818                      # sa818 = an SA818 module, programmed by this
                                            #   program over its serial port.
@@ -123,7 +144,12 @@ bridge_ms     = 300        # Squelch drop-outs shorter than this (mobile flutter
 tail_silence  = true       # An over that was delayed (the first one, by up to
                            # lookback_ms) still has that much audio to go when the
                            # talker unkeys. false = send it: the last word belongs
-                           # to the over. true = send silence instead.
+                           # to the over. true = drop it and end the over at once:
+                           # on a repeater the talker listens to the output and
+                           # would hear the end of their own over come back. A
+                           # repeater (duplex, transmitter) then also drops what
+                           # its transmitter still had waiting. Set it the same on
+                           # a transmitter and its receivers.
 tail_trim_ms  = 0          # Cut this much off the end of every over (squelch crash).
                            # Costs the same amount of delay on every over.
 

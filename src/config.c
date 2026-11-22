@@ -112,6 +112,7 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->voter.switch_over = true;
     cfg->voter.margin      = 25.0f;
     cfg->voter.hold_ms     = 500;
+    cfg->voter.switch_lag_ms = 300;
     cfg->voter.late_ms     = 700;
     cfg->voter.tx_blank_ms = 3000;
     snprintf(cfg->receiver.codec, sizeof cfg->receiver.codec, "S16");
@@ -126,7 +127,8 @@ void config_defaults(config_t *cfg, const role_t *role)
     snprintf(cfg->sdr.type, sizeof cfg->sdr.type, "openwebrx");
     snprintf(cfg->sdr.name, sizeof cfg->sdr.name, "TailChaser");
     cfg->sdr.bandwidth_hz     = 8000;
-    cfg->sdr.buffer_ms        = 300;
+    cfg->sdr.buffer_ms        = -1;        /* 300 for a web SDR, 60 for one here */
+    cfg->sdr.gain             = -1.0f;
     cfg->sdr.tls_verify       = true;
     cfg->sdr.squelch_open_db  = -42.0f;
     cfg->sdr.squelch_close_db = -36.0f;
@@ -177,7 +179,15 @@ void config_defaults(config_t *cfg, const role_t *role)
         cfg->gate.vad.min_voiced_ms = 140;
     }
 
+    if (role->remote_rx)
+        cfg->gate.tail_silence = true;          /* as its receiver: engine.c, rx_over_end() */
+
     snprintf(cfg->log_level, sizeof cfg->log_level, "info");
+}
+
+bool config_sdr_local(const config_t *cfg)
+{
+    return !strcasecmp(cfg->sdr.type, "rtlsdr") || !strcasecmp(cfg->sdr.type, "hydrasdr");
 }
 
 const receiver_config_t *config_receiver(const config_t *cfg, int i)
@@ -405,12 +415,14 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "switch"))      BOOL(vo->switch_over);
         if (!strcmp(key, "margin"))      FLT(vo->margin);
         if (!strcmp(key, "hold_ms"))     INT(vo->hold_ms);
+        if (!strcmp(key, "switch_lag_ms")) INT(vo->switch_lag_ms);
         if (!strcmp(key, "late_ms"))     INT(vo->late_ms);
         if (!strcmp(key, "tx_blank_ms")) INT(vo->tx_blank_ms);
     } else if (!strncmp(sec, "receiver", 8) && (sec[8] == '\0' || (sec[8] >= '2' && sec[8] <= '4' && sec[9] == '\0'))) {
         receiver_config_t *rc = sec[8] ? &cfg->receiver_more[sec[8] - '2'] : &cfg->receiver;
         if (!strcmp(key, "name"))          STR(rc->name);
         if (!strcmp(key, "siglev_offset")) FLT(rc->siglev_offset);
+        if (!strcmp(key, "lag_ms"))        INT(rc->lag_ms);
         if (!strcmp(key, "status_port")) INT(rc->status_port);
         if (!strcmp(key, "host")) {
             /* host or host:port (not an IPv6 literal with colons) */
@@ -442,7 +454,19 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "noise_hz"))      INT(sl->noise_hz);
     } else if (!strcmp(sec, "sdr")) {
         sdr_config_t *sd = &cfg->sdr;
+        cfg->sdr_set = true;
         if (!strcmp(key, "type"))     STR(sd->type);
+        if (!strcmp(key, "device"))   STR(sd->device);
+        if (!strcmp(key, "command"))  STR(sd->command);
+        if (!strcmp(key, "iq_format")) STR(sd->iq_format);
+        if (!strcmp(key, "gain")) {
+            if (!strcasecmp(v, "auto")) { sd->gain = -1.0f; return 1; }
+            FLT(sd->gain);
+        }
+        if (!strcmp(key, "ppm"))         INT(sd->ppm);
+        if (!strcmp(key, "sample_rate")) INT(sd->sample_rate);
+        if (!strcmp(key, "offset_hz"))   INT(sd->offset_hz);
+        if (!strcmp(key, "bias_tee"))    BOOL(sd->bias_tee);
         if (!strcmp(key, "url"))      STR(sd->url);
         if (!strcmp(key, "profile"))  STR(sd->profile);
         if (!strcmp(key, "password")) STR(sd->password);
@@ -767,6 +791,8 @@ void config_finish(config_t *cfg, const role_t *role)
     radio_config_t *r = &cfg->radio;
     cfg->audio.capture  = role->rx;
     cfg->audio.playback = role->tx;
+    if (cfg->sdr.buffer_ms < 0)
+        cfg->sdr.buffer_ms = config_sdr_local(cfg) ? 60 : 300;
     if (role->sdr) {                    /* no radio, no lines, no sound card */
         r->type = RADIO_NONE;
         r->cos_line = r->ptt_line = -1;
@@ -858,10 +884,13 @@ int config_validate(const config_t *cfg, const role_t *role)
             FAIL("config: [%s] port %d out of range", sec, rc->port);
         if (strcmp(rc->codec, "S16") && strcmp(rc->codec, "RAW") && strcmp(rc->codec, "OPUS"))
             FAIL("config: [%s] codec must be S16, RAW or OPUS", sec);
+        if (rc->lag_ms < 0 || rc->lag_ms > 10000)
+            FAIL("config: [%s] lag_ms %d — 0 (learned) to 10000", sec, rc->lag_ms);
     }
     if (cfg->voter.margin < 1.0f || cfg->voter.margin > 100.0f || cfg->voter.hold_ms < 0 || cfg->voter.hold_ms > 10000 ||
-        cfg->voter.late_ms < 0 || cfg->voter.late_ms > 10000 || cfg->voter.tx_blank_ms < 0 || cfg->voter.tx_blank_ms > 20000)
-        FAIL("config: [voter] margin 1..100, hold_ms and late_ms 0..10000, tx_blank_ms 0..20000");
+        cfg->voter.late_ms < 0 || cfg->voter.late_ms > 10000 || cfg->voter.tx_blank_ms < 0 || cfg->voter.tx_blank_ms > 20000 ||
+        cfg->voter.switch_lag_ms < 0 || cfg->voter.switch_lag_ms > 10000)
+        FAIL("config: [voter] margin 1..100, hold_ms, late_ms and switch_lag_ms 0..10000, tx_blank_ms 0..20000");
 
     const radio_config_t *r = &cfg->radio;
     if (r->type == RADIO_SA818) {
@@ -894,11 +923,27 @@ int config_validate(const config_t *cfg, const role_t *role)
     const ctcss_config_t *ct = &cfg->ctcss;
     if (role->sdr) {
         const sdr_config_t *sd = &cfg->sdr;
-        if (strcasecmp(sd->type, "openwebrx") && strcasecmp(sd->type, "kiwisdr") &&
+        bool local = config_sdr_local(cfg);
+        if (!local && strcasecmp(sd->type, "openwebrx") && strcasecmp(sd->type, "kiwisdr") &&
             strcasecmp(sd->type, "web888") && strcasecmp(sd->type, "ubersdr"))
-            FAIL("config: [sdr] type must be openwebrx, kiwisdr, web888 or ubersdr");
-        if (sd->url[0] == '\0')
+            FAIL("config: [sdr] type must be openwebrx, kiwisdr, web888 or ubersdr (a web SDR), "
+                 "or rtlsdr or hydrasdr (a receiver on the USB port)");
+        if (!local && sd->url[0] == '\0')
             FAIL("config: [sdr] url is required — the address of the web SDR");
+        if (local) {
+            int rate = sd->sample_rate ? sd->sample_rate : !strcasecmp(sd->type, "rtlsdr") ? 240000 : 2500000;
+            if (rate < 48000 || rate > 10000000)
+                FAIL("config: [sdr] sample_rate must be 48000..10000000");
+            if (abs(sd->offset_hz) > rate * 2 / 5)
+                FAIL("config: [sdr] offset_hz must stay within 0.4 of the sample rate");
+            if (sd->ppm < -200 || sd->ppm > 200)
+                FAIL("config: [sdr] ppm must be -200..200");
+            if (sd->iq_format[0] && strcasecmp(sd->iq_format, "u8") && strcasecmp(sd->iq_format, "s16") &&
+                strcasecmp(sd->iq_format, "f32"))
+                FAIL("config: [sdr] iq_format must be u8, s16 or f32");
+            if (strchr(sd->device, '\''))
+                FAIL("config: [sdr] device must not contain a quote");
+        }
         if (sd->freq_hz <= 0)
             FAIL("config: [sdr] freq is required — the frequency to listen on, in MHz");
         if (sd->bandwidth_hz < 4000 || sd->bandwidth_hz > 24000)

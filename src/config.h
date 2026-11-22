@@ -42,6 +42,8 @@ typedef struct {
                              * in ours as "remote_receiver" (0 = not)                */
     char  name[24];         /* in the log and on the status page                    */
     float siglev_offset;    /* added to what it reports, before the vote            */
+    int   lag_ms;           /* how far behind it always is (a web SDR): measured with
+                             * tools/sdrlag.py. 0 = learned from the overs it shares  */
 } receiver_config_t;
 
 #define CFG_MAX_RECEIVERS 4
@@ -51,6 +53,9 @@ typedef struct {
     bool  switch_over;      /* change receiver during an over when another is better */
     float margin;           /* ...by this much (signal, 0..100)                     */
     int   hold_ms;          /* ...for this long                                     */
+    int   switch_lag_ms;    /* ...but never between receivers further apart in time
+                             * than this: the listener would hear words twice, or
+                             * miss them                                             */
     int   late_ms;          /* a receiver that is still open after the one that had
                              * the over closed is its late copy for its delay plus
                              * this long; after that it is a station of its own     */
@@ -60,7 +65,19 @@ typedef struct {
 
 /* [sdr] — sdrreceiver: the web SDR it listens on */
 typedef struct {
-    char   type[16];        /* openwebrx | kiwisdr | web888 | ubersdr              */
+    char   type[16];        /* openwebrx | kiwisdr | web888 | ubersdr: a web SDR;
+                             * rtlsdr | hydrasdr: a receiver on the USB port here   */
+    /* rtlsdr, hydrasdr */
+    char   device[48];      /* which one: rtl_sdr -d (index or serial), hydrasdr_rx -s */
+    float  gain;            /* rtlsdr: tuner gain in dB (-1 = automatic);
+                             * hydrasdr: linearity gain 0..21 (-1 = 12)            */
+    int    ppm;             /* frequency correction                                */
+    int    sample_rate;     /* 0 = 240000 (rtlsdr), 2500000 (hydrasdr)             */
+    int    offset_hz;       /* the radio is tuned this far below the channel
+                             * (0 = a quarter of the sample rate)                  */
+    bool   bias_tee;
+    char   command[256];    /* instead of rtl_sdr / hydrasdr_rx: gives the samples */
+    char   iq_format[8];    /* ...as u8, s16 or f32 pairs                          */
     char   url[256];
     double freq_hz;
     int    bandwidth_hz;    /* the channel: 8000 narrow, 12000 wide                */
@@ -278,6 +295,7 @@ typedef struct {
     gate_params_t   gate;   /* [gate] + the gate's share of [dtmf] */
     dtmf_config_t   dtmf;
     status_config_t status;
+    bool            sdr_set;            /* the file has an [sdr] section */
     bool            status_rssi_set;    /* [status] rssi_lo/hi came from the file */
     char            log_level[16];
     char            path[256];
@@ -294,6 +312,9 @@ int  config_load(config_t *cfg, const char *path);
 /* What follows from the role and the file together (a receiver's transmit
  * frequency is its receive frequency, ...). Call after config_load(). */
 void config_finish(config_t *cfg, const role_t *role);
+
+/* [sdr] type is a receiver on the USB port, not one on the internet. */
+bool config_sdr_local(const config_t *cfg);
 
 /* Range/consistency checks for this role; logs every problem. Returns 0 if
  * usable. */

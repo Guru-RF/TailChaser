@@ -183,7 +183,12 @@ records, for every opening, what the gate would have done.
 - **The first over on an idle channel runs late.** It is streamed from
   `lookback_ms` before the detection, so it reaches the talkgroup up to that
   much behind, start to end. When the talker unkeys, that much audio is still
-  to come, and it is sent (`tail_silence = false`): the over arrives whole.
+  to come. A simplex node sends it (`tail_silence = false`): the over arrives
+  whole. A repeater's receiver drops it and ends the over at once
+  (`tail_silence = true`, the default there), and the repeater drops what its
+  transmitter still had waiting: the talker listens to the output from the
+  moment they unkey, and would hear the end of their own over come back. The
+  price is the end of that first over, by the delay it had.
   Overs that pass on the hold time are only `min_open_ms` behind.
 - **Music or data bursts** are not specifically handled; music will usually
   pass, data usually not.

@@ -90,7 +90,7 @@ def late_copy(exes, tmp, wavs, check):
     rx = Node(exes[0], tmp, "receiver", receiver_conf(
         port, f"pause:3200,{wavs['v']},pause:1800,{wavs['v']},pause:3200,{wavs['v']}"), T0, Sa818())
     node = Node(exes[1], tmp, "duplex", node_conf(
-        ref, port, hp, f"pause:2000,{wavs['v']},pause:11000,{wavs['short']}", tmp, "[voter]\nswitch = false\n"), T0, Sa818())
+        ref, port, hp, f"pause:2000,{wavs['v']},pause:11000,{wavs['short']}", tmp, "[voter]\nswitch = false\n[receiver]\nlag_ms = 1200\n"), T0, Sa818())
     try:
         ov = overs_at(ref, 4, 16)
         time.sleep(4.0)
@@ -109,27 +109,36 @@ def late_copy(exes, tmp, wavs, check):
         check(v["receivers"][0]["name"] == "the SDR" and v["receivers"][0]["connected"] and v["receivers"][0]["overs"] == 2,
               "the status tells which receiver had how many overs")
         check(sum(1 for x in d if x > 0.3) == 4 and st["tx"]["count"] <= 4, "nothing was transmitted twice")
+        check(v["receivers"][0]["lag_ms"] == 1200 and v["receivers"][0]["lag_set"] and "is 1200 ms behind (set" in log,
+              "how far behind it is was measured and set ([receiver] lag_ms): the voter keeps to that")
     finally:
         node.stop()
         rx.stop()
 
 
 def better_one(exes, tmp, wavs, check):
-    ref = Reflector(tmp, proto=2, auth_key="e2e-secret")
-    port, hp = free_port(), free_port()
-    rx = Node(exes[0], tmp, "receiver", receiver_conf(port, f"pause:2600,{wavs['v']}"), T0, Sa818())
-    node = Node(exes[1], tmp, "duplex", node_conf(ref, port, hp, f"pause:2000,{wavs['v']}", tmp, siglev=20), T0, Sa818())
-    try:
-        ov = overs_at(ref, 1, 12)
-        time.sleep(1.5)
-        log = node.logtext()
-        d = len(ov[0]) * 0.02 if ov else 0.0
-        check("the SDR hears it better (signal 100, the receiver here 20) — it takes the over" in log,
-              "a weak signal here, a strong one there: the better receiver takes the over")
-        check(near(d, 3.6, 0.35), f"...in the same over, which ends when that receiver's does ({d:.2f} s: 3.0 s and its delay)")
-    finally:
-        node.stop()
-        rx.stop()
+    for lag in (200, 1200):
+        ref = Reflector(tmp, proto=2, auth_key="e2e-secret")
+        port, hp = free_port(), free_port()
+        rx = Node(exes[0], tmp, "receiver", receiver_conf(port, f"pause:{2000 + lag},{wavs['v']}"), T0, Sa818())
+        node = Node(exes[1], tmp, "duplex", node_conf(ref, port, hp, f"pause:2000,{wavs['v']}", tmp, siglev=20), T0, Sa818())
+        try:
+            ov = overs_at(ref, 1, 12)
+            time.sleep(2.5)
+            log = node.logtext()
+            d = len(ov[0]) * 0.02 if ov else 0.0
+            took = "the SDR hears it better (signal 100, the receiver here 20) — it takes the over" in log
+            if lag == 200:
+                check(took, "a weak signal here, a strong one there, in step: the better receiver takes the over")
+                check(near(d, 3.2, 0.3), f"...in the same over, which ends when that receiver's does ({d:.2f} s: 3.0 s and its delay)")
+            else:
+                check(not took and "s behind — the over stays where it is" in log,
+                      "the better receiver is a second behind (a web SDR): it does not take a running over")
+                check(near(d, 3.0, 0.2) and len(overs_at(ref, 1, 1)) == 1,
+                      f"...so nobody hears the last words twice: the over is passed on once, as long as it was ({d:.2f} s)")
+        finally:
+            node.stop()
+            rx.stop()
 
 
 def own_transmitter(exes, tmp, wavs, check):

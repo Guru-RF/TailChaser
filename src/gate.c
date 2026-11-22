@@ -353,17 +353,21 @@ void gate_process(gate_t *g, const int16_t *pcm, int n, bool cos)
         case GATE_OPEN:
             flush_dtmf(g);
             ring_drop_newest(g, ms_to_frames(g, g->p.tail_trim_ms));
+            if (g->p.tail_silence) {
+                /* The talker has unkeyed and is listening, and would hear the
+                 * end of their own over come back from the repeater. What is
+                 * still delayed is not sent, and the over ends now — not a
+                 * delay of silence later: the repeater knows at once that the
+                 * station has gone, and stops what it still had to send. */
+                g->head = g->len = 0;
+                close_gate(g);
+                return;
+            }
             g->state = GATE_DRAIN;
             /* fall through */
         case GATE_DRAIN:
-            if (g->len > 0) {
-                /* What is still delayed is played out — as silence by default:
-                 * the talker has unkeyed and is listening, and would hear the
-                 * end of their own over come back from the repeater. */
-                if (g->p.tail_silence)
-                    memset(g->ring[g->head], 0, sizeof(int16_t) * (size_t)g->ring_n[g->head]);
-                ring_emit_oldest(g);
-            }
+            if (g->len > 0)
+                ring_emit_oldest(g);        /* what is still delayed is played out */
             if (g->len == 0)
                 close_gate(g);
             return;

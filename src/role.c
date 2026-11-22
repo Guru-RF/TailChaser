@@ -27,7 +27,7 @@ static const role_t ROLES[] = {
     },
     [ROLE_SDRRECEIVER] = {
         ROLE_SDRRECEIVER, "sdrreceiver", "tailchaser-sdrreceiver",
-        "a receiver on a web SDR (OpenWebRX, KiwiSDR, Web-888, UberSDR), for a repeater or node to vote with",
+        "a receiver on a web SDR (OpenWebRX, KiwiSDR, Web-888, UberSDR) or a USB SDR, for a repeater or node to vote with",
         "receiver on a web SDR",
         .rx = true, .uplink = true, .sdr = true,
     },

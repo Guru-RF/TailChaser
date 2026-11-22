@@ -891,6 +891,8 @@ static void pause_ms(sdr_t *s, int ms)
         usleep(100000);
 }
 
+#include "sdr_local.inc"
+
 static void *sdr_main(void *arg)
 {
     sdr_t *s = arg;
@@ -948,13 +950,14 @@ sdr_t *sdr_start(const sdr_config_t *cfg, int out_rate)
     s->cfg = *cfg;
     s->out_rate = out_rate;
     s->fd = -1;
-    s->be = backend_of(cfg->type);
-    if (!s->be) {
+    bool local = sdr_is_local(cfg->type);
+    s->be = local ? NULL : backend_of(cfg->type);
+    if (!local && !s->be) {
         log_error("[sdr] type = %s: openwebrx, kiwisdr, web888 or ubersdr", cfg->type);
         free(s);
         return NULL;
     }
-    if (parse_url(s, cfg->url) != 0) {
+    if (!local && parse_url(s, cfg->url) != 0) {
         log_error("[sdr] url = %s: not an address", cfg->url);
         free(s);
         return NULL;
@@ -967,7 +970,7 @@ sdr_t *sdr_start(const sdr_config_t *cfg, int out_rate)
     }
     pthread_mutex_init(&s->mu, NULL);
     snprintf(s->st.state, sizeof s->st.state, "starting");
-    if (pthread_create(&s->thread, NULL, sdr_main, s) != 0) {
+    if (pthread_create(&s->thread, NULL, local ? local_main : sdr_main, s) != 0) {
         free(s->ring);
         free(s);
         return NULL;

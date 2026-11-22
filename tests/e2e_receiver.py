@@ -226,8 +226,11 @@ bind = 127.0.0.1
                                f"noise or a 1750 Hz tone (got {len(overs)})")
         if len(overs) >= 1:
             secs = overs[0][2] / 4 / FS
-            check(abs(secs - 3.0) < 0.15, f"the spoken over arrived whole: {secs:.2f}s of 3.00s")
+            check(2.6 <= secs <= 3.05, f"the spoken over arrived, up to where the gate was when the station unkeyed: {secs:.2f}s of 3.00s")
             check(overs[0][1] is not None, "the spoken over was closed again")
+            if overs[0][1] is not None:
+                took = overs[0][1] - overs[0][0]
+                check(took < secs + 0.2, f"...and closed at once, without a tail of silence ({took:.2f}s open for {secs:.2f}s of audio)")
         check(digits == list("15#"), f"DTMF digits reported: {''.join(digits)!r} (sent '15#')")
 
         st = json.load(urllib.request.urlopen(f"http://127.0.0.1:{http_port}/status.json", timeout=3))

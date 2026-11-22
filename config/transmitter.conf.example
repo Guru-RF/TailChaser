@@ -97,6 +97,9 @@ codec         = S16                        # S16 (uncompressed, for a LAN) | OPU
 #auth_key     =                            # its [uplink] auth_key
 #name         = web SDR                    # in the log and on the status page
 #siglev_offset = 0                         # added to the signal it reports, before the vote
+#lag_ms       = 0                          # how far behind it always is, in ms (a web SDR):
+                                           #   measure it with tools/sdrlag.py. 0 = learned
+                                           #   from the overs it shares with another receiver.
 #codec        = S16
 #[receiver3] ...
 
@@ -104,6 +107,8 @@ codec         = S16                        # S16 (uncompressed, for a LAN) | OPU
 #switch       = true                       # another receiver takes an over when it hears it better...
 #margin       = 25                         # ...by this much (signal, 0..100)
 #hold_ms      = 500                        # ...for this long
+#switch_lag_ms = 300                       # ...but not a receiver this much behind or ahead (a web SDR):
+                                           # the last words would be heard twice, or missed
 #late_ms      = 700                        # a receiver still open after the one that had the over
                                            # closed: its late copy for its delay plus this long;
                                            # after that it is a station of its own
@@ -235,6 +240,14 @@ commands      = true       # <tg_prefix><talkgroup>#  selects a talkgroup
                            # <tg_prefix>#             the talkgroup used before
 tg_prefix     = 91         # 91 = as on an SvxLink node: 911745# selects talkgroup 1745
 ack           = true       # answer a command with the talkgroup number in Morse
+
+[gate]
+tail_silence  = true       # The transmitter runs a little behind its receiver (the
+                           # TX delay, the sound card). true = when the station on
+                           # the input unkeys, what still waits is dropped: it
+                           # listens to the output now and would hear the end of
+                           # its own over come back. false = send it all. Set it
+                           # the same as on the receivers ([gate] there).
 
 [audio]
 alsa_device   = plughw:0   # the sound card the radio is on (WM8960 audio HAT)

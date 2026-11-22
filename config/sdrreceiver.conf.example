@@ -13,6 +13,8 @@
 
 [sdr]
 type          = openwebrx    # openwebrx | kiwisdr | web888 | ubersdr
+                             # (or rtlsdr | hydrasdr, an SDR on the USB port of this box:
+                             #  see config/receiver.conf.example for its settings)
 url           =              # REQUIRED  https://sdr.example.org   (kiwisdr / web888: http://host:8073)
 freq          =              # REQUIRED  MHz. A repeater: its INPUT (431.200 for 438.800 - 7.6).
                              #           A simplex node: its frequency.

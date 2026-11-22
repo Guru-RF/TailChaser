@@ -212,7 +212,8 @@ bind = 127.0.0.1
         check(on and min(on) >= 1 and all(r == -1 for c, r, _, _ in seen if not c) and seen[0][2:] == (0, 100),
               f"the transmitter shows the signal strength its receiver reports ({max(on) if on else '-'} of 100 during an over, none without)")
         for i, pk in enumerate(ov):
-            check(near(len(pk) * 0.02, 3.0, 0.15), f"over {i + 1} is on the talkgroup whole: {len(pk) * 0.02:.2f} s of 3.00 s")
+            check(2.6 <= len(pk) * 0.02 <= 3.15,
+                  f"over {i + 1} is on the talkgroup, up to where the gate was at the unkey: {len(pk) * 0.02:.2f} s of 3.00 s")
         if len(ov) < 2 or len(ov[0]) < 100:
             check(False, "no audio to replay — the rest of this scenario cannot run")
             return
@@ -251,6 +252,14 @@ bind = 127.0.0.1
         lv.append(speech_db(rec, s, t_beep - 0.1) if t_beep else -120.0)
         check(len(g) >= 2 and blop(rec, t_beep, beep_len),
               f"over {i + 1}: blop after it — {pitch(rec, (t_beep or 0) + 0.01, (t_beep or 0) + beep_len - 0.01):.0f} Hz, {beep_len * 1000:.0f} ms")
+        # The transmitter runs behind its receiver (0.2 s of TX delay, the queue).
+        # When the station unkeys, what still waits is not sent: it would hear it back.
+        said = [x for x in g if t_beep is None or x[1] <= t_beep]
+        on_air = said[-1][1] - said[0][0] if said else 0.0
+        gap = (t_beep or 0) - (said[-1][1] if said else 0)
+        check(t_beep is not None and 2.2 <= on_air <= 2.78 and gap < 0.3,
+              f"...the station does not hear the end of its own over back: {on_air:.2f} s of it on the air, "
+              f"the beep {gap * 1000:.0f} ms behind — what the transmitter still had waiting at the unkey is dropped")
         check(t_beep is not None and near(e_ - (t_beep + beep_len), 1.0, 0.25),
               f"...and the carrier stays up for the hang time ({e_ - (t_beep or 0) - beep_len:.2f} s, 1 s set)")
         check(near(e_ - s, 0.2 + 3.0 + 0.2 + 0.07 + 1.0, 0.45),

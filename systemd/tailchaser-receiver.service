@@ -43,6 +43,7 @@ StateDirectoryMode=0700
 ReadWritePaths=-/etc/tailchaser
 DeviceAllow=char-alsa rw
 DeviceAllow=char-gpiochip rw
+DeviceAllow=char-usb_device rw
 # /dev/serial0 is a symlink; allow the real UART nodes it can resolve to.
 DeviceAllow=/dev/ttyAMA0 rw
 DeviceAllow=/dev/ttyS0 rw

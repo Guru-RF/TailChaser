@@ -62,6 +62,7 @@ struct engine {
         bool     open, ignore;          /* ignore: this opening is not listened to */
         uint64_t opened_at, wait_until, better_since;
         int      lag_ms;                /* how late it is, as seen so far (0 = not seen) */
+        bool     lag_set;               /* ...or as measured and set: [receiverN] lag_ms */
         int16_t  acc[AUDIO_MAX_FRAME];  /* its audio, being framed */
         int      acc_n;
         unsigned long won;
@@ -72,6 +73,7 @@ struct engine {
     bool            own_open;           /* the receiver in this box has an over */
     uint64_t        own_at, own_better, switched_at, tx_seen_at;
     int             last_src;           /* who had the over before: -1 nobody yet */
+    bool            lag_said;           /* this over: said that a better receiver is too far behind */
     uint64_t        last_began, last_end;
     bool            tx_seen;
     gpio_t         *gpio;
@@ -1158,6 +1160,14 @@ static void rx_over_end(engine_t *e)
     if (e->uplink)
         nettrx_squelch(e->uplink, false, siglev_now(e));
     e->local_over = false;
+    if (e->role->repeater && e->cfg->gate.tail_silence) {
+        /* The station has unkeyed and listens to the output. The transmitter
+         * runs behind its receiver (the carrier's delay, the queue, the sound
+         * card): what still waits is the end of that station's own over, and
+         * it would hear it come back. Not sent. */
+        rptq_clear(e);
+        audio_tx_flush(e->audio);
+    }
     if (e->role->repeater && e->rpt_frames > 0 && !e->rpt_lockout && e->cfg->repeater.roger_beep) {
         e->beep_pending = true;
         e->beep_net = false;
@@ -1351,6 +1361,7 @@ static void vote_begin(engine_t *e, int s)
 {
     e->active = s;
     e->switched_at = e->t_ms;
+    e->lag_said = false;
     if (s > 0) {
         e->rxl[s - 1].won++;
         e->rxl[s - 1].acc_n = 0;
@@ -1360,10 +1371,19 @@ static void vote_begin(engine_t *e, int s)
         log_debug("voter: %s has the over (signal %.0f)", src_name(e, s), (double)src_siglev(e, s));
 }
 
+/* A simplex node: how long after its own transmission a receiver elsewhere
+ * still brings that transmission. Known exactly when its lag was measured. */
+static uint64_t tx_blank(const engine_t *e, const struct rxl *l)
+{
+    return l->lag_set ? (uint64_t)l->lag_ms + (uint64_t)e->cfg->voter.late_ms : (uint64_t)e->cfg->voter.tx_blank_ms;
+}
+
 #define LAG_UNKNOWN_MS 2500     /* a receiver whose delay has not been seen yet: assume a web SDR */
 
 static void lag_seen(struct rxl *l, uint64_t ms)
 {
+    if (l->lag_set)
+        return;                                 /* measured: not second-guessed */
     if (ms > 5000) ms = 5000;
     l->lag_ms = l->lag_ms ? (3 * l->lag_ms + (int)ms) / 4 : (int)ms;
 }
@@ -1414,6 +1434,8 @@ static void vote_end(engine_t *e)
             continue;
         uint64_t late = l->opened_at > began ? l->opened_at - began : 0;
         if (late > 5000) late = 5000;
+        if (l->lag_set)
+            late = (uint64_t)l->lag_ms;         /* how far behind it is, exactly */
         /* opened before the one that had the over: it is not behind — go on there */
         l->wait_until = l->opened_at > began ? e->t_ms + late + (uint64_t)e->cfg->voter.late_ms : e->t_ms;
     }
@@ -1436,8 +1458,8 @@ static void vote_tick(engine_t *e)
             e->tx_seen = true;
             e->tx_seen_at = e->t_ms;
         }
-        if (e->tx_seen && e->t_ms - e->tx_seen_at < (uint64_t)v->tx_blank_ms) {
-            for (int i = 0; i < e->n_rxl; i++) {
+        for (int i = 0; e->tx_seen && i < e->n_rxl; i++) {
+            if (e->t_ms - e->tx_seen_at < tx_blank(e, &e->rxl[i])) {
                 if (e->rxl[i].open && !e->rxl[i].ignore) {
                     e->rxl[i].ignore = true;
                     if (e->active == i + 1)
@@ -1479,6 +1501,19 @@ static void vote_tick(engine_t *e)
         *since = e->t_ms ? e->t_ms : 1;
     if (e->t_ms - *since < (uint64_t)v->hold_ms || e->t_ms - e->switched_at < 1000)
         return;
+    /* A receiver that is behind (a web SDR: a second or more) would say the
+     * last words again; one that is ahead would skip as many. Neither takes
+     * a running over: the late one is for what the others do not hear. */
+    int apart = (best > 0 ? e->rxl[best - 1].lag_ms : 0) - (e->active > 0 ? e->rxl[e->active - 1].lag_ms : 0);
+    if (abs(apart) > v->switch_lag_ms) {
+        if (!e->lag_said) {
+            e->lag_said = true;
+            log_info("voter: %s hears it better (signal %.0f, %s %.0f), but is %.1f s %s — the over stays where it is",
+                     src_name(e, best), (double)src_siglev(e, best), src_name(e, e->active),
+                     (double)src_siglev(e, e->active), abs(apart) / 1000.0, apart > 0 ? "behind" : "ahead");
+        }
+        return;
+    }
     log_info("voter: %s hears it better (signal %.0f, %s %.0f) — it takes the over", src_name(e, best),
              (double)src_siglev(e, best), src_name(e, e->active), (double)src_siglev(e, e->active));
     *since = 0;
@@ -1503,7 +1538,7 @@ void engine_remote_squelch(engine_t *e, int i, bool open, float siglev)
         l->opened_at = e->t_ms;
         l->acc_n = 0;
         l->ignore = e->role->tx && !e->role->repeater &&
-                    (e->tx != TX_OFF || (e->tx_seen && e->t_ms - e->tx_seen_at < (uint64_t)e->cfg->voter.tx_blank_ms));
+                    (e->tx != TX_OFF || (e->tx_seen && e->t_ms - e->tx_seen_at < tx_blank(e, l)));
         if (!l->ignore)
             vote_open(e, i + 1);
     } else {
@@ -1809,13 +1844,15 @@ bool engine_wants_rssi(const engine_t *e)
 
 void engine_set_monitor(engine_t *e, struct monitor *m) { e->monitor = m; }
 
-int engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset)
+int engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset, int lag_ms)
 {
     if (e->n_rxl == CFG_MAX_RECEIVERS)
         return -1;
     struct rxl *l = &e->rxl[e->n_rxl];
     l->link = link;
     l->offset = siglev_offset;
+    l->lag_ms = lag_ms > 0 ? lag_ms : 0;
+    l->lag_set = lag_ms > 0;
     if (name && name[0])
         snprintf(l->name, sizeof l->name, "%s", name);
     else if (e->n_rxl == 0 && !e->role->rx)
@@ -1879,6 +1916,8 @@ void engine_push_status(engine_t *e)
         d->receivers[i].open    = e->rxl[i].open;
         d->receivers[i].ignored = e->rxl[i].ignore;
         d->receivers[i].won     = e->rxl[i].won;
+        d->receivers[i].lag_ms  = e->rxl[i].lag_ms;
+        d->receivers[i].lag_set = e->rxl[i].lag_set;
     }
     d->over_open    = e->local_over;
     d->norm_gain_db = e->agc.gain_db;

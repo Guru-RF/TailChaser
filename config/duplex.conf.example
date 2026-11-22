@@ -84,6 +84,9 @@ tone_to_talkgroup = true                   # tell which CTCSS tone opens the hom
 #auth_key     =                            # its [uplink] auth_key
 #name         = web SDR                    # in the log and on the status page
 #siglev_offset = 0                         # added to the signal it reports, before the vote
+#lag_ms       = 0                          # how far behind it always is, in ms (a web SDR):
+                                           #   measure it with tools/sdrlag.py. 0 = learned
+                                           #   from the overs it shares with another receiver.
 #codec        = S16
 #[receiver2] ...
 
@@ -91,6 +94,8 @@ tone_to_talkgroup = true                   # tell which CTCSS tone opens the hom
 #switch       = true                       # another receiver takes an over when it hears it better...
 #margin       = 25                         # ...by this much (signal, 0..100)
 #hold_ms      = 500                        # ...for this long
+#switch_lag_ms = 300                       # ...but not a receiver this much behind or ahead (a web SDR):
+                                           # the last words would be heard twice, or missed
 #late_ms      = 700                        # a receiver still open after the one that had the over
                                            # closed: its late copy for its delay plus this long;
                                            # after that it is a station of its own
@@ -297,7 +302,12 @@ bridge_ms     = 300        # Squelch drop-outs shorter than this (mobile flutter
 tail_silence  = false      # An over that was delayed (the first one, by up to
                            # lookback_ms) still has that much audio to go when the
                            # talker unkeys. false = send it: the last word belongs
-                           # to the over. true = send silence instead.
+                           # to the over. true = drop it and end the over at once:
+                           # on a repeater the talker listens to the output and
+                           # would hear the end of their own over come back. A
+                           # repeater (duplex, transmitter) then also drops what
+                           # its transmitter still had waiting. Set it the same on
+                           # a transmitter and its receivers.
 tail_trim_ms  = 0          # Cut this much off the end of every over (squelch crash).
                            # Costs the same amount of delay on every over.
 

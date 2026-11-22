@@ -65,7 +65,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(OBJ:.o=.d) $(patsubst %,src/bin/%.d,$(ROLES))
 
 TOOL_CFLAGS := $(CSTD) $(WARN) $(OPT) -D_GNU_SOURCE -Isrc
-TOOLS := vadtest gatetest dtmftest agctest ctcsstest opuspkt
+TOOLS := vadtest gatetest dtmftest agctest ctcsstest opuspkt iqgen
 
 PREFIX  ?= /usr/local
 DESTDIR ?=
@@ -111,6 +111,9 @@ gatetest: tools/gatetest.c src/gate.c src/vad.c src/dtmf.c src/wav.c
 agctest: tools/agctest.c src/audioproc.c src/wav.c
 	$(CC) $(TOOL_CFLAGS) $^ -o $@ -lm
 
+iqgen: tools/iqgen.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
 opuspkt: tools/opuspkt.c
 	$(CC) $(TOOL_CFLAGS) $(PKG_CFLAGS) $^ -o $@ -lopus
 
@@ -120,17 +123,20 @@ ctcsstest: tools/ctcsstest.c src/ctcss.c src/audioproc.c src/wav.c
 # Without hardware: the programs play generated WAV files as squelch openings
 # and record what they would transmit, while stand-ins take the part of the
 # reflector, the repeater and the SA818.
-check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt
+check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt iqgen
 	sh tests/migrate.sh ./tailchaser-simplex
 	python3 tests/dtmf.py ./dtmftest ./gatetest
 	python3 tests/agc.py ./agctest
 	python3 tests/ctcss.py ./ctcsstest ./tailchaser-receiver
 	python3 tests/announce.py ./tailchaser-duplex tools/tailchaser-announce
 	python3 tools/devcal.py --selftest
+	python3 tools/sdrlag.py --selftest
 	python3 tests/admin.py ./tailchaser-duplex
 	python3 tests/monitor.py ./tailchaser-duplex
 	python3 tests/sdr.py ./tailchaser-sdrreceiver ./opuspkt
+	python3 tests/usbsdr.py ./tailchaser-receiver ./iqgen
 	python3 tests/voter.py ./tailchaser-receiver ./tailchaser-duplex ./tailchaser-simplex
+	python3 tests/multirx.py ./tailchaser-receiver ./tailchaser-duplex ./tailchaser-transmitter ./tailchaser-sdrreceiver
 	python3 tests/e2e_receiver.py ./tailchaser-receiver
 	python3 tests/e2e_repeater.py ./tailchaser-receiver ./tailchaser-transmitter ./tailchaser-duplex
 	python3 tests/e2e_simplex.py ./tailchaser-simplex

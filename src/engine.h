@@ -68,7 +68,7 @@ void engine_remote_siglev(engine_t *e, int link, float siglev);
 /* A receiver elsewhere; returns its number (the `link` of the calls above). */
 struct monitor;
 void engine_set_monitor(engine_t *e, struct monitor *m);     /* listening in */
-int  engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset);
+int  engine_add_rxlink(engine_t *e, netrx_t *link, const char *name, float siglev_offset, int lag_ms);
 
 /* A test transmission (tones), as soon as the transmitter is free. */
 void engine_test_tx(engine_t *e);

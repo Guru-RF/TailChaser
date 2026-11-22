@@ -178,6 +178,8 @@ id "$SERVICE_USER" >/dev/null 2>&1 || \
     run "useradd --system --no-create-home --shell /usr/sbin/nologin $SERVICE_USER"
 getent group gpio >/dev/null || run "groupadd --system gpio"
 run "usermod -aG audio,gpio,dialout $SERVICE_USER"
+# an SDR on the USB port (rtl-sdr, hydrasdr): their udev rules give it to plugdev
+getent group plugdev >/dev/null && run "usermod -aG plugdev $SERVICE_USER"
 
 # ---------------------------------------------------------------------------
 say "[3/6] Building + installing $PROG"
