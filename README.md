@@ -476,6 +476,28 @@ no automatic take-over yet: write `duplex.conf` or `transmitter.conf` from the
 example, and copy the node's key and certificate from SvxLink's
 `CERT_PKI_DIR` to `/var/lib/tailchaser/pki` so the reflector keeps knowing it.
 
+**What SvxLink's unit did before it started is yours to keep.** Read
+`systemctl cat svxlink` for `ExecStartPre=` lines before you switch it off: on
+some boards that is where the sound card is loaded (a WM8960 as a run-time
+overlay), the mixer is set, or a relay is switched. Without them the box
+works until the next reboot, and then finds no sound card. Put those commands
+in a small unit of your own that runs before TailChaser:
+
+```ini
+# /etc/systemd/system/site-audio.service
+[Unit]
+Before=tailchaser-duplex.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/wm8960-soundcard
+ExecStart=/usr/sbin/repeater_volume
+[Install]
+WantedBy=multi-user.target
+```
+
+and reboot once to see it come back by itself.
+
 On a box that already runs the program, `bootstrap.sh <role>` is an update:
 rebuild, install, check the configuration, restart.
 
