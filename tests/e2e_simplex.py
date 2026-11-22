@@ -868,7 +868,7 @@ hang_ms = 0
 timeout_s = 60
 
 [ident]
-callsign = ON0TST
+callsign = ON0TST-S
 interval_min = 60
 
 [gate]
@@ -1063,7 +1063,7 @@ bind = 127.0.0.1
 
     s, e_ = b[3]
     text, t_cw = rec.morse(s, e_, 600, 24)
-    check(text == "ON0TST", f"the identification in Morse reads \"{text}\"")
+    check(text == "ON0TST", f"the identification in Morse reads \"{text}\" — ON0TST-S without what follows the dash")
     check(32.6 <= s + off <= 34.4, f"keyed on the hour: {s + off:.2f} s after start (the hour struck between 33 and 34)")
     check(near(t_cw - s, 0.40, 0.07) and near(e_ - s, 0.40 + 61 * 0.05 + 0.04, 0.15),
           f"24 wpm: {e_ - s:.2f} s keyed for 61 dot lengths behind the TX delay")

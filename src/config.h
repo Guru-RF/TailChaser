@@ -275,7 +275,7 @@ typedef struct {
     char   admin_file[256]; /* password, API keys, blocks                           */
     char bind[48];
     int  rssi_lo;           /* S-meter on the page: raw SA818 RSSI shown as S1      */
-    int  rssi_hi;           /*                      ... and as S9+40                */
+    int  rssi_hi;           /*                      ... and as S9+60                */
 } status_config_t;
 
 typedef struct {

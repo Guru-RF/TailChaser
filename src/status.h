@@ -77,7 +77,7 @@ typedef struct {
     float  noise_db;
     bool   tone_detect, tone_open;      /* [ctcss]: the software tone squelch */
     float  tone_hz, tone_level_db, tone_snr_db;
-    int    rssi_lo, rssi_hi;        /* S-meter scale: raw RSSI at S1 and at S9+40 */
+    int    rssi_lo, rssi_hi;        /* S-meter scale: raw RSSI at S1 and at S9+60 */
     char   mode[10];
     int    hold_s;
     char   callsign[32];            /* the node's login on the reflector */

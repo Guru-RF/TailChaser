@@ -384,9 +384,10 @@ monitor       = false      # true: a "Listen" card on the status page (level, sp
                            # (ws://<this box>:8080/monitor/rx and /tx). For setting up and
                            # debugging: whoever can open the status page can then listen.
 bind          = 0.0.0.0
-rssi_lo       = 79         # S-meter on the page: the raw SA818 RSSI shown as S1 ...
-rssi_hi       = 100        # ... and as S9+40 (uncalibrated: compare with a known signal).
-                           #   An SA818PRO reads higher: try 102 and 190.
+#rssi_lo      = 79         # S-meter on the page: the raw SA818 RSSI shown as S1 ...
+#rssi_hi      = 100        # ... and as S9+60 (uncalibrated: compare with a known signal).
+                           #   An SA818PRO reads higher: try 102 and 190. Leave them
+                           #   out with [siglev] mode = noise: the scale is 0..100 then.
 
 [gpio]
 chip          = auto       # auto-detect the 40-pin header chip, or /dev/gpiochipN

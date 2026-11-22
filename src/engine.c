@@ -2135,7 +2135,13 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
     e->recover_frames = ms_to_frames(e, cfg->tx.rx_recover_ms);
     e->tail_frames = ms_to_frames(e, audio_tx_latency_ms(audio) + cfg->tx.hang_ms);
     e->home_tg = e->sel_tg = e->prev_tg = cfg->link.default_tg;
-    cw_sanitize(cfg->ident.callsign, e->ident_text, (int)sizeof e->ident_text);
+    /* In Morse a callsign goes without what follows a dash: ON0ABC-S is ON0ABC
+     * (the dash names the set, not the station) — as for the stations that
+     * come from the talkgroup (call_send). */
+    char own[sizeof cfg->ident.callsign];
+    snprintf(own, sizeof own, "%s", cfg->ident.callsign);
+    own[strcspn(own, "-")] = '\0';
+    cw_sanitize(own, e->ident_text, (int)sizeof e->ident_text);
 
     agc_params_t ap;
     agc_default_params(&ap);

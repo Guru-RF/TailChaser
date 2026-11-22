@@ -112,7 +112,7 @@ sed -e 's/^#domain /domain /' -e 's/^#callsign /callsign /' -e 's/^#default_tg /
 check 'accepted "$TMP/x.conf" && grep -q "ON0XXX in Morse every 60 min" "$TMP/t.log" &&
        ! grep -q "unknown setting" "$TMP/t.log"' \
       "...and accepted once its REQUIRED lines are filled in; every setting in it is known"
-sed -e 's/^rssi_hi .*/rssi_hi = 79/' "$TMP/x.conf" >"$TMP/y.conf"
+sed -e 's/^#rssi_lo .*/rssi_lo = 79/' -e 's/^#rssi_hi .*/rssi_hi = 79/' "$TMP/x.conf" >"$TMP/y.conf"
 "$EXE" -t -c "$TMP/y.conf" >"$TMP/y.log" 2>&1
 check '[ $? -eq 78 ] && grep -q "rssi_hi the greater" "$TMP/y.log"' \
       "an S-meter scale without a span is refused (rssi_hi must be above rssi_lo)"

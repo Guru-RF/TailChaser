@@ -58,7 +58,7 @@ key. What a small device wants from it:
 | `tx.keyed` `tx.why` `tx.keyed_ms` | on the air, why (`talkgroup audio`, `announcement`, …), for how long |
 | `gate.cos` | the squelch is open |
 | `gate.open` | …and what is received is passed on (a voice was heard) |
-| `gate.rssi` (`gate.rssi_lo`, `gate.rssi_hi`) | signal strength, raw; `rssi_lo` = S1, `rssi_hi` = S9+40; −1 = no signal. On a transmit site it is what the receiver that has the over reports (0..100), so the same field works on every program; `remote_receiver.gate.rssi` is that receiver's own raw reading |
+| `gate.rssi` (`gate.rssi_lo`, `gate.rssi_hi`) | signal strength, raw; `rssi_lo` = S1, `rssi_hi` = S9+60; −1 = no signal. On a transmit site it is what the receiver that has the over reports (0..100), so the same field works on every program; `remote_receiver.gate.rssi` is that receiver's own raw reading |
 | `gate.level_db` | receive audio level, dBFS |
 | `ctcss.open` `ctcss.level_db` `ctcss.snr_db` | the tone squelch in software, when `ctcss.detect` |
 | `link.connected` `link.tg` `link.home_tg` `link.talker` | the talkgroup link: logged in, talkgroup now, talkgroup at rest, who is talking (`""` = nobody) |
