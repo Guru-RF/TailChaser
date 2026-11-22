@@ -219,7 +219,7 @@ bind = 127.0.0.1
             return
         time.sleep(3.0)
         ref.talk(8, "ON7AAA", ov[0][:50])
-        time.sleep(3.0)
+        time.sleep(5.5)
         tx.proc.send_signal(signal.SIGUSR1)
         time.sleep(4.5)
 
@@ -269,10 +269,12 @@ bind = 127.0.0.1
     s, e_ = b[2]
     g = groups(rec, s, e_)
     t_beep, beep_len, hz = beep_of(rec, s, e_)
-    check(len(g) >= 2 and bleep_blop(rec, t_beep, beep_len),
-          f"the talkgroup over ends with bleep blop — {tones(rec, t_beep, beep_len)}: it came over the network")
-    check(near(e_ - s, 0.2 + 1.0 + 0.2 + 0.16 + 1.0, 0.4),
-          f"...{e_ - s:.2f} s keyed (TX delay + 1 s of audio + beep + hang): no Morse for a station that is not a repeater")
+    who = next((w for w in (rec.morse(s + t, e_, 800, 34)[0] for t in (1.3, 1.4, 1.5, 1.6, 1.7, 1.2)) if w == "ON7AAA"),
+               rec.morse(s + 1.4, e_, 800, 34)[0])
+    check(who == "ON7AAA" and not bleep_blop(rec, t_beep, beep_len),
+          f"the talkgroup over of a station that is not on a repeater ends with its callsign in Morse (\"{who}\"), and no beep")
+    check(near(e_ - s, 0.2 + 1.0 + 0.2 + 2.25 + 1.0, 0.5),
+          f"...{e_ - s:.2f} s keyed (TX delay + 1 s of audio + the Morse + hang)")
     s, e_ = b[3]
     g = groups(rec, s, e_)
     check(len(g) == 1 and near(g[0][1] - g[0][0], 2.0, 0.1) and near(pitch(rec, g[0][0] + 0.2, g[0][0] + 0.8), 1000, 20)

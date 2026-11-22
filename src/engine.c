@@ -621,6 +621,13 @@ static void call_send(engine_t *e, const char *call)
         for (const char *p = call + pl; *p && *p != '-' && o + 1 < sizeof text; p++)
             text[o++] = *p;
         text[o] = '\0';
+    } else if (rp->net_call_full) {
+        /* not a repeater: the station itself, without what follows a dash
+         * (ON4ABC-P is ON4ABC: the dash names the set, not the station) */
+        size_t o = 0;
+        for (const char *p = call; *p && *p != '-' && o + 1 < sizeof text; p++)
+            text[o++] = *p;
+        text[o] = '\0';
     } else {
         snprintf(text, sizeof text, "%s", rp->net_call_other);     /* empty: nothing is sent */
     }

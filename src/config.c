@@ -151,6 +151,7 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->repeater.net_call          = true;
     cfg->repeater.net_call_after    = true;
     cfg->repeater.net_call_once     = false;
+    cfg->repeater.net_call_full     = true;
     cfg->repeater.net_call_wpm      = 34;
     cfg->repeater.net_call_pitch_hz = 800;
     cfg->repeater.net_call_lead_ms  = 600;
@@ -515,6 +516,7 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "roger_net_beep")) BOOL(rp->roger_net_beep);
         if (!strcmp(key, "net_call"))          BOOL(rp->net_call);
         if (!strcmp(key, "net_call_once"))     BOOL(rp->net_call_once);
+        if (!strcmp(key, "net_call_full"))     BOOL(rp->net_call_full);
         if (!strcmp(key, "net_call_when")) {
             if (!strcasecmp(v, "after"))       rp->net_call_after = true;
             else if (!strcasecmp(v, "before")) rp->net_call_after = false;

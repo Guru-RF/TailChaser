@@ -218,8 +218,9 @@ the last overs with what the gate made of each, what was transmitted.
   lost, the audio waits — and stays up `hang_ms` (3000) after the last audio;
 - **which repeater an over from the network came through** is sent in fast
   Morse after it: ON0OST → `OST` (`[repeater] net_call`, 34 wpm), in place of
-  the "bleep blop", which is left for stations that are not on a repeater. A
-  station on the repeater's own input gets the roger beep. The Morse is
+  the "bleep blop". A station that is not on a repeater is sent by its whole
+  callsign (`net_call_full`; off, it gets the bleep blop). A station on the
+  repeater's own input gets the roger beep. The Morse is
   dropped when somebody talks again before it. `net_call_when = before` sends
   it ahead of the over instead (the speech waits in a buffer, and the bleep
   blop follows the over); `net_call_once = true` only when it is another

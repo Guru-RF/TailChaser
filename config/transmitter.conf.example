@@ -168,16 +168,19 @@ test_level_db = -20        #   sudo systemctl kill -s USR1 tailchaser-<role>
 [repeater]
 # After an over the repeater answers. A station on its own input: the roger
 # beep. An over from the talkgroup: which repeater it came through, in fast
-# Morse — or, for a station that is not on a repeater, "bleep blop".
+# Morse — or the callsign of a station that is not on a repeater.
 roger_beep    = true       # "blop" after every over that was repeated: the repeater
                            # heard you, the next one can go
 roger_tones   = 800        # its pitch in Hz — or several, one after the other
 roger_net_beep = true      # "bleep blop" after an over from the talkgroup that gets
-roger_net_tones = 1200, 800  # no Morse (below): that one came in over the network
+roger_net_tones = 1200, 800  # no Morse after it (below): that one came in over the network
 roger_delay_ms = 200       # this long after the over
 net_call      = true       # Which repeater an over from the talkgroup came through,
                            # in fast Morse: ON0OST by the letters after
-net_call_prefix = ON0      # this prefix — "OST". Other stations get none.
+net_call_prefix = ON0      # this prefix — "OST".
+net_call_full = true       # A station that is not on a repeater: its callsign,
+                           # whole (ON4ABC-P as ON4ABC). false = no Morse for it,
+                           # and the bleep blop after its over.
 net_call_when = after      # after = when the over has ended, in place of the bleep
                            # blop; the speech starts at once, and the Morse is
                            # dropped when somebody talks again first.

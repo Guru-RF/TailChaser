@@ -115,7 +115,8 @@ typedef struct {
     int   net_call_wpm, net_call_pitch_hz, net_call_lead_ms;
     float net_call_level_db;
     char  net_call_prefix[12];          /* "ON0": ON0OST is sent as OST                  */
-    char  net_call_other[12];           /* everybody else: "INET"                        */
+    bool  net_call_full;                /* everybody else: the callsign, whole (ON4ABC)  */
+    char  net_call_other[12];           /* ...or, without that, this text: "INET"        */
     bool  roger_net_beep;               /* ...and one after an over from the talkgroup   */
     int   net_tones[CFG_MAX_ROGER];     /* "bleep blop": the pitches, one after the other */
     int   net_n;
