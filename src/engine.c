@@ -1428,8 +1428,32 @@ static void vote_end(engine_t *e)
             l->acc_n = 0;
             rx_over_audio(e, l->acc, e->frame, false);
         }
-        remote_over_done(e, was - 1);
     }
+    /* Another receiver that is in step with this one still hears the station:
+     * the same over — this receiver lost the station, or its squelch simply
+     * closed a moment before the other's. It goes on there; ended and begun
+     * again it would be two overs, the second often a few milliseconds long. */
+    int lag_was = was > 0 ? e->rxl[was - 1].lag_ms : 0, next = -1;
+    for (int s = e->role->rx ? 0 : 1; s < n_src(e); s++) {
+        if (s == was || !src_open(e, s) || (s > 0 && e->rxl[s - 1].wait_until > e->t_ms))
+            continue;
+        if (abs((s > 0 ? e->rxl[s - 1].lag_ms : 0) - lag_was) > e->cfg->voter.switch_lag_ms)
+            continue;
+        if (next < 0 || src_siglev(e, s) > src_siglev(e, next))
+            next = s;
+    }
+    if (next >= 0) {
+        log_debug("voter: %s has closed, %s is still open — the over goes on there", src_name(e, was), src_name(e, next));
+        e->active = next;
+        e->switched_at = e->t_ms;
+        if (next > 0) {
+            e->rxl[next - 1].won++;
+            e->rxl[next - 1].acc_n = 0;
+        }
+        return;
+    }
+    if (was > 0)
+        remote_over_done(e, was - 1);
     rx_over_end(e);
     e->active = -1;
     e->last_src = was;
@@ -1684,7 +1708,10 @@ static void sink_report(void *ctx, const gate_report_t *r)
     status_unlock(e->status);
 
     e->rssi_peak = -1;
-    e->local_sent = e->local_lost = 0;
+    /* (Not while another receiver has the over: these count what went to the
+     * talkgroup in it, and its end marker depends on them.) */
+    if (e->active <= 0)
+        e->local_sent = e->local_lost = 0;
 }
 
 /* ------------------------------------------------------------------ */
