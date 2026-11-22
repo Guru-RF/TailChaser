@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Protocol version we speak. */
 #define REFMSG_PROTO_MAJOR 3
@@ -45,6 +46,8 @@ enum {
     RT_TALKER_STOP             = 105,
     RT_SELECT_TG               = 106,
     RT_TG_MONITOR              = 107,
+    RT_SIGNAL_STRENGTH         = 112,
+    RT_TX_STATUS               = 113,
     RT_START_UDP_ENCRYPTION    = 114,
 };
 
@@ -72,6 +75,16 @@ int refmsg_build_node_info(uint8_t *out, size_t cap,
                            const char *json);
 int refmsg_build_select_tg(uint8_t *out, size_t cap, uint32_t tg);
 /* tgs is copied + sorted ascending internally (max 256). */
+/* One receiver of the node, as the reflector shows it (MsgSignalStrengthValues):
+ * its letter in the node information, 0..100, and what it is doing. */
+typedef struct {
+    char    id;
+    uint8_t siglev;
+    bool    enabled, sql_open, active;
+} refmsg_rx_t;
+int refmsg_build_siglev(uint8_t *out, size_t cap, const refmsg_rx_t *rx, int n);
+/* MsgTxStatus: the transmitter with this letter is on the air, or not. */
+int refmsg_build_tx_status(uint8_t *out, size_t cap, char id, bool transmit);
 int refmsg_build_tg_monitor(uint8_t *out, size_t cap, const uint32_t *tgs, int n);
 
 /* ---- parsers (operate on the payload: [u16 type][fields], length = plen) ---- */

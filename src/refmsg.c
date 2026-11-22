@@ -97,6 +97,32 @@ int refmsg_build_select_tg(uint8_t *out, size_t cap, uint32_t tg)
     return 6;
 }
 
+/* u16 type, u16 count, then per receiver: char id, u8 siglev, u8 flags
+ * (bit 0 enabled, bit 1 squelch open, bit 2 the one listened to). */
+int refmsg_build_siglev(uint8_t *out, size_t cap, const refmsg_rx_t *rx, int n)
+{
+    if (n < 0 || cap < 4 + 3 * (size_t)n) return -1;
+    wr_be16(out + 0, RT_SIGNAL_STRENGTH);
+    wr_be16(out + 2, (uint16_t)n);
+    for (int i = 0; i < n; i++) {
+        out[4 + 3 * i]     = (uint8_t)rx[i].id;
+        out[4 + 3 * i + 1] = rx[i].siglev > 100 ? 100 : rx[i].siglev;
+        out[4 + 3 * i + 2] = (uint8_t)((rx[i].enabled ? 1 : 0) | (rx[i].sql_open ? 2 : 0) | (rx[i].active ? 4 : 0));
+    }
+    return 4 + 3 * n;
+}
+
+/* u16 type, u16 count (1), char id, u8 flags (bit 0 transmitting). */
+int refmsg_build_tx_status(uint8_t *out, size_t cap, char id, bool transmit)
+{
+    if (cap < 6) return -1;
+    wr_be16(out + 0, RT_TX_STATUS);
+    wr_be16(out + 2, 1);
+    out[4] = (uint8_t)id;
+    out[5] = transmit ? 1 : 0;
+    return 6;
+}
+
 int refmsg_build_tg_monitor(uint8_t *out, size_t cap, const uint32_t *tgs, int n)
 {
     if (n < 0) n = 0;

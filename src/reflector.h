@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "refmsg.h"
 
 #define REFLECTOR_MAX_MONITOR 64
 #define REFLECTOR_MAX_OPUS    512     /* largest Opus packet accepted / sent */
@@ -43,7 +44,7 @@ typedef struct {
     char     locator[16];
     char     qth_name[48];
     char     sw_version[32];
-    char     rxtx_json[640];     /* "rx":{...},"tx":{...} of the qth entry    */
+    char     rxtx_json[2200];     /* "rx":{...},"tx":{...} of the qth entry    */
     char     extra_json[96];     /* more top-level members, each with a trailing comma */
     bool     hidden;
     bool     verify_host;        /* the certificate must name the reflector   */
@@ -102,6 +103,13 @@ void reflector_tx_stop(reflector_t *r);
  * away what is still on its way (250 ms). While not logged in the selection is
  * only remembered; it is applied when the session comes up. */
 void reflector_select_tg(reflector_t *r, uint32_t tg, bool drop_in_flight);
+
+/* What the receivers of the node hear and which one is listened to
+ * (MsgSignalStrengthValues), and whether the transmitter is on (MsgTxStatus):
+ * the reflector passes it on in its status, for the dashboards. The letters
+ * are those of the node information. false = not logged in: say it again. */
+bool reflector_send_rx_status(reflector_t *r, const refmsg_rx_t *rx, int n);
+bool reflector_send_tx_status(reflector_t *r, char id, bool transmit);
 
 /* Events (network thread -> main). Add the fd to poll(); drain with get_event. */
 int  reflector_event_fd(const reflector_t *r);

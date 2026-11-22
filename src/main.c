@@ -216,15 +216,33 @@ static void node_info_radio(reflector_cfg_t *rc, const config_t *cfg, const role
         snprintf(ant + n, sizeof ant - (size_t)n, "}]");
     }
 
-    char rx[280], tx[280];
-    int n = snprintf(rx, sizeof rx, "\"rx\":{\"A\":{\"name\":\"Rx1\"");
+    /* The receivers, each under its letter: the one in this box first, then
+     * those elsewhere ([receiver], [receiver2]..) — the letters the signal
+     * reports to the reflector go by (engine.c, report_tick). */
+    char rx[1800], tx[280], what[320];
+    int n = 0;
     if (f_rx > 0)
-        n += snprintf(rx + n, sizeof rx - (size_t)n, ",\"freq\":%.4f", f_rx);
+        n += snprintf(what + n, sizeof what - (size_t)n, ",\"freq\":%.4f", f_rx);
     if (role->rx || f_rx > 0 || t_rx > 0)
-        n += snprintf(rx + n, sizeof rx - (size_t)n, ",\"sqlType\":\"%s\"", t_rx > 0 ? "CTCSS" : "COS");
+        n += snprintf(what + n, sizeof what - (size_t)n, ",\"sqlType\":\"%s\"", t_rx > 0 ? "CTCSS" : "COS");
     if (t_rx > 0)
-        n += snprintf(rx + n, sizeof rx - (size_t)n, ",\"ctcssFreq\":[%.1f]", (double)t_rx);
-    snprintf(rx + n, sizeof rx - (size_t)n, "%s}}", ant);
+        n += snprintf(what + n, sizeof what - (size_t)n, ",\"ctcssFreq\":[%.1f]", (double)t_rx);
+    snprintf(what + n, sizeof what - (size_t)n, "%s", ant);
+    int n_far = role->reflector ? config_receivers(cfg, role) : 0, letter = 0;
+    n = snprintf(rx, sizeof rx, "\"rx\":{");
+    if (role->rx || n_far == 0)
+        n += snprintf(rx + n, sizeof rx - (size_t)n, "\"%c\":{\"name\":\"Rx1\"%s}", 'A' + letter++, what);
+    for (int k = 0; k < n_far && (size_t)n + sizeof what + 80 < sizeof rx; k++) {
+        char name[60];
+        size_t q = 0;
+        for (const char *p = config_receiver(cfg, k)->name; *p && q + 1 < sizeof name; p++)
+            if ((unsigned char)*p >= 0x20 && *p != '"' && *p != '\\') name[q++] = *p;
+        name[q] = '\0';
+        if (!name[0]) snprintf(name, sizeof name, "Rx%d", letter + 1);
+        n += snprintf(rx + n, sizeof rx - (size_t)n, "%s\"%c\":{\"name\":\"%s\"%s}", letter ? "," : "", 'A' + letter, name, what);
+        letter++;
+    }
+    snprintf(rx + n, sizeof rx - (size_t)n, "}");
 
     n = snprintf(tx, sizeof tx, "\"tx\":{\"A\":{\"name\":\"Tx1\"");
     if (f_tx > 0)

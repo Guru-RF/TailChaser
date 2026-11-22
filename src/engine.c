@@ -148,6 +148,13 @@ struct engine {
     void      (*unkey_hook)(void *);
     void       *unkey_ctx;
 
+    /* ---- what the reflector was last told (report_tick) ---- */
+    refmsg_rx_t rep_rx[1 + CFG_MAX_RECEIVERS];
+    int         rep_n;          /* -1 = nothing yet, or logged in again: say it all */
+    int         rep_tx;         /* -1 likewise, else 0/1 */
+    int         rep_tick;
+    uint64_t    rep_at;
+
     int16_t *netq;              /* decoded talkgroup audio waiting to be transmitted */
     int      nq_head, nq_len;
     int      net_hold;          /* jitter gathering, frames left */
@@ -1770,6 +1777,62 @@ static bool sdr_squelch(engine_t *e, bool audio)
     return e->sdr_open;
 }
 
+/* ------------------------------------------------------------------ */
+/* The reflector is told what the receivers hear (MsgSignalStrengthValues, as
+ * an SvxLink node does) and whether the transmitter is on (MsgTxStatus): it
+ * shows in the reflector's status, for whoever draws a dashboard from it.
+ * Receivers by their letter in the node information (main.c): the one in this
+ * box first, then those elsewhere. A change of squelch or of who is listened
+ * to goes out at once, the signal itself twice a second while one is open. */
+static void report_tick(engine_t *e)
+{
+    if (!e->ref || ++e->rep_tick < 5)           /* looked at every 100 ms */
+        return;
+    e->rep_tick = 0;
+    if (!reflector_connected(e->ref)) {
+        e->rep_n = e->rep_tx = -1;              /* it forgets us: all of it again after the login */
+        return;
+    }
+
+    refmsg_rx_t rx[1 + CFG_MAX_RECEIVERS];
+    int n = 0;
+    bool any = false, flags = false, level = false;
+    if (e->role->rx) {
+        float v = e->cos_open ? siglev_now(e) : 0.0f;
+        rx[n++] = (refmsg_rx_t){ .id = 'A', .siglev = (uint8_t)lrintf(v < 0 ? 0 : v > 100 ? 100 : v),
+                                 .enabled = !e->block_rx, .sql_open = e->cos_open,
+                                 .active = e->cos_open && e->own_open && e->active == 0 };
+    }
+    for (int i = 0; i < e->n_rxl; i++) {
+        float v = e->rxl[i].open ? e->rxl[i].siglev + e->rxl[i].offset : 0.0f;
+        netrx_status_t st;
+        netrx_get_status(e->rxl[i].link, &st);
+        rx[n] = (refmsg_rx_t){ .id = (char)('A' + n), .siglev = (uint8_t)lrintf(v < 0 ? 0 : v > 100 ? 100 : v),
+                               .enabled = st.connected && !e->block_rx, .sql_open = e->rxl[i].open,
+                               .active = e->rxl[i].open && !e->rxl[i].ignore && e->active == i + 1 };
+        n++;
+    }
+    for (int i = 0; i < n; i++) {
+        any |= rx[i].sql_open;
+        if (e->rep_n != n) { flags = true; continue; }
+        flags |= rx[i].enabled != e->rep_rx[i].enabled || rx[i].sql_open != e->rep_rx[i].sql_open ||
+                 rx[i].active != e->rep_rx[i].active;
+        level |= rx[i].siglev != e->rep_rx[i].siglev;
+    }
+    if (n > 0 && (flags || (level && any && e->t_ms - e->rep_at >= 500)) &&
+        reflector_send_rx_status(e->ref, rx, n)) {
+        memcpy(e->rep_rx, rx, sizeof(rx[0]) * (size_t)n);
+        e->rep_n = n;
+        e->rep_at = e->t_ms;
+    }
+
+    if (e->role->tx) {
+        int on = e->tx != TX_OFF;
+        if (on != e->rep_tx && reflector_send_tx_status(e->ref, 'A', on))
+            e->rep_tx = on;
+    }
+}
+
 void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
 {
     e->t_ms += (uint64_t)e->frame_ms;
@@ -1833,6 +1896,7 @@ void engine_on_frame(engine_t *e, const audio_frame_t *f, bool hw_cos)
     clock_tick(e);
     if (e->role->tx)
         tx_tick(e);
+    report_tick(e);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1978,6 +2042,7 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
     e->frame_ms = e->frame * 1000 / cfg->audio.sample_rate;
     e->rssi = e->rssi_peak = -1;
     e->active = -1;
+    e->rep_n = e->rep_tx = -1;
     e->last_src = -1;
     e->preamp  = powf(10.0f, cfg->audio.preamp_db / 20.0f);
     e->line_on = cfg->radio.cos_line >= 0 || role->sdr;   /* a web SDR: the squelch is made here */

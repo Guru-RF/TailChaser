@@ -503,6 +503,15 @@ commonName = supplied
             elif t == 107:
                 n = struct.unpack(">H", body[:2])[0]
                 self.ev("monitor", list(struct.unpack(f">{n}I", body[2:2 + 4 * n])))
+            elif t == 112:                              # MsgSignalStrengthValues: (id, siglev, enabled, open, active)
+                n = struct.unpack(">H", body[:2])[0]
+                self.ev("siglev", [(chr(body[2 + 3 * i]), body[3 + 3 * i], bool(body[4 + 3 * i] & 1),
+                                    bool(body[4 + 3 * i] & 2), bool(body[4 + 3 * i] & 4)) for i in range(n)]
+                        if len(body) == 2 + 3 * n else None)
+            elif t == 113:                              # MsgTxStatus: (id, transmitting)
+                n = struct.unpack(">H", body[:2])[0]
+                self.ev("txstatus", [(chr(body[2 + 2 * i]), bool(body[3 + 2 * i] & 1)) for i in range(n)]
+                        if len(body) == 2 + 2 * n else None)
             elif t != "idle":
                 self.ev("msg", t)
 
@@ -931,6 +940,14 @@ bind = 127.0.0.1
         if len(packets) < 100:
             check(False, "no audio to replay — the rest of this scenario cannot run")
             return
+        ref.wait("siglev", 1.5, start=fl[0], pred=lambda d: d and not d[0][3])
+        sl = [d for _, d in ref.all("siglev")]
+        check(len(sl) > 0 and None not in sl and sl[0] == [("A", 0, True, False, False)],
+              f"the reflector is told about the receiver as an SvxLink node does: first that it is there and closed ({sl[:1]})")
+        heard = [d[0] for d in sl if d and d[0][3]]
+        check(any(d == ("A", 100, True, True, True) for d in heard) and sl and sl[-1] == [("A", 0, True, False, False)],
+              f"...then, during the over, its signal (100: RSSI 137 on 79..100), squelch open and listened to — and closed again after it ({sl[1:]})")
+        check(len(sl) <= 12, f"...a change at once, the signal at most twice a second ({len(sl)} messages for a 3 s over)")
 
         # ---- the talkgroup talks: the transmitter is keyed ----
         time.sleep(0.3)
@@ -940,6 +957,9 @@ bind = 127.0.0.1
         check(live.get("tx", {}).get("keyed") and live["tx"]["why"] == "talkgroup audio"
               and live["link"]["talker"] == "ON4TST" and live["gate"]["rssi"] == -1,
               "status while it transmits: on the air with talkgroup audio, ON4TST talking, no signal reading")
+        txs = [d for _, d in ref.all("txstatus")]
+        check(txs[:1] == [[("A", False)]] and [("A", True)] in txs,
+              f"the reflector is told when the transmitter comes on ({txs[:3]})")
 
         # ---- talkgroup audio during a noise burst waits, and is then sent whole ----
         deadline = node.t0 + 16

@@ -328,6 +328,26 @@ void reflector_tx_stop(reflector_t *r)
 
 /* Snapshot the monitor set under the lock (it is mutated by the lock command
  * from the main thread and read by both the main and network threads). */
+bool reflector_send_rx_status(reflector_t *r, const refmsg_rx_t *rx, int n)
+{
+    uint8_t m[64];
+    if (!atomic_load(&r->udp_ready))
+        return false;
+    int len = refmsg_build_siglev(m, sizeof m, rx, n);
+    if (len > 0) cmd_enqueue(r, m, len);
+    return true;
+}
+
+bool reflector_send_tx_status(reflector_t *r, char id, bool transmit)
+{
+    uint8_t m[8];
+    if (!atomic_load(&r->udp_ready))
+        return false;
+    int len = refmsg_build_tx_status(m, sizeof m, id, transmit);
+    if (len > 0) cmd_enqueue(r, m, len);
+    return true;
+}
+
 static int monitor_snapshot(reflector_t *r, uint32_t *out, int cap)
 {
     pthread_mutex_lock(&r->lock);
@@ -439,10 +459,10 @@ static void send_node_info(reflector_t *r)
     pthread_mutex_unlock(&r->lock);
     if (g != 0) { log_error("reflector: gen_tx failed"); return; }
 
-    char json[1600];
+    char json[3200];
     build_node_info_json(r, json, sizeof json);
 
-    uint8_t msg[2048];
+    uint8_t msg[4096];
     int n = refmsg_build_node_info(msg, sizeof msg, iv, 6, key, 16, json);
     if (n > 0) send_frame(r, msg, n);
     log_info("reflector: sent NodeInfo (%zu B JSON)", strlen(json));

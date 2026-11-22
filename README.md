@@ -411,6 +411,16 @@ from `[radio]` and `[ctcss]`. `[location]` adds what the program cannot know:
 `power_w`, `antenna`, `antenna_height_m`, and the frequencies and tones of a
 radio it does not program or a receiver at another site.
 
+While it runs the node also tells the reflector, as an SvxLink node does, what
+its receivers hear: per receiver the signal (0..100), whether its squelch is
+open and whether it is the one listened to — and whether the transmitter is on
+the air. The reflector passes that on in its status, where a dashboard can
+show it. A node that votes lists every receiver under its own letter: `A` the
+one in the box, `B`, `C`.. those of `[receiver]`, `[receiver2]`.. by their
+`name`. A change goes out at once, the signal twice a second during an over.
+(With a password login, the old protocol, the node sends no node information:
+the values go out, but without the receivers' names to go with them.)
+
 ### The reflector login
 
 With a certificate (the default): on its first connection the node makes a key

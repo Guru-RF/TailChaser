@@ -16,6 +16,7 @@ then the same pair with a weak signal here and a strong one there (the
 better receiver takes the over), and a simplex node whose second receiver
 hears the node's own transmitter (which must not come back).
 """
+import json
 import os
 import sys
 import tempfile
@@ -116,6 +117,27 @@ def late_copy(exes, tmp, wavs, check):
         rx.stop()
 
 
+def letters(exes, tmp, wavs, check):
+    """The receivers' letters in the node information (a certificate login: the
+    password login of the other scenarios sends no node information)."""
+    ref = Reflector(tmp)
+    hp = free_port()
+    conf = node_conf(ref, free_port(), hp, "pause:1000", tmp).replace(
+        "auth_key = e2e-secret", f"email = sysop@example.org\npki_dir = {tmp}/pki")
+    node = Node(exes[1], tmp, "duplex", conf, T0, Sa818())
+    try:
+        e = ref.wait("nodeinfo", 40)
+        rxs = json.loads(e[2])["qth"][0]["rx"] if e else {}
+        check(sorted(rxs) == ["A", "B"] and rxs["A"]["name"] == "Rx1" and rxs["B"]["name"] == "the SDR"
+              and rxs["B"].get("freq") == 431.2,
+              f"the node information names both receivers, each under its letter ({sorted(rxs)}: B is {rxs.get('B', {}).get('name')})")
+        s = ref.wait("siglev", 5)
+        check(s is not None and s[2] == [("A", 0, True, False, False), ("B", 0, False, False, False)],
+              f"...and the reflector is told that B, which the node cannot reach, is not in use ({s and s[2]})")
+    finally:
+        node.stop()
+
+
 def better_one(exes, tmp, wavs, check):
     for lag in (200, 1200):
         ref = Reflector(tmp, proto=2, auth_key="e2e-secret")
@@ -130,6 +152,11 @@ def better_one(exes, tmp, wavs, check):
             took = "the SDR hears it better (signal 100, the receiver here 20) — it takes the over" in log
             if lag == 200:
                 check(took, "a weak signal here, a strong one there, in step: the better receiver takes the over")
+                sl = [d for _, d in ref.all("siglev") if d]
+                check(any(d == [("A", 20, True, True, True), ("B", 0, True, False, False)] for d in sl)
+                      and any(d == [("A", 20, True, True, False), ("B", 100, True, True, True)] for d in sl)
+                      and sl[-1] == [("A", 0, True, False, False), ("B", 0, True, False, False)],
+                      "the reflector hears the vote: A alone with signal 20, then B with 100 listened to, then both closed")
                 check(near(d, 3.2, 0.3), f"...in the same over, which ends when that receiver's does ({d:.2f} s: 3.0 s and its delay)")
             else:
                 check(not took and "s behind — the over stays where it is" in log,
@@ -178,7 +205,8 @@ def main():
     runs = []
     for title, fn, sub in (("voting: a second receiver that is late", late_copy, "late"),
                            ("voting: the better receiver", better_one, "better"),
-                           ("voting: a simplex node and its own transmitter", own_transmitter, "own")):
+                           ("voting: a simplex node and its own transmitter", own_transmitter, "own"),
+                           ("voting: what the reflector is told about the receivers", letters, "letters")):
         os.mkdir(f"{tmp}/{sub}")
         check = Checks(title)
 
