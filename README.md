@@ -343,6 +343,14 @@ It tells its tone from the next one in the CTCSS table and filters it out of
 the audio. A set like this has no RSSI either: `[siglev] mode = noise` makes
 a signal meter out of the receiver's hiss above the speech band — the
 stronger the station, the quieter it is — as SvxLink's noise detector does.
+Its two ends are the set's own: `noise_open_db` is the hiss with the squelch
+open and nobody there (reads 0), `noise_full_db` the hiss under a strong
+station (reads 100); `/status.json` shows the hiss live as `noise.level_db`.
+The status page draws 0..100 as S1..S9+60, and the reflector is told the
+same number — so leave `[status] rssi_lo`/`rssi_hi` out on such a set.
+On a repeater whose own receiver hears a last word of the station come back
+when it lets go, `[gate] tail_silence = true` drops what is still waiting to
+be sent at that moment.
 `/status.json` shows the tone level and its margin over the noise
 live under `"ctcss"`; `./ctcsstest -f 79.7 recording.wav` does the same for a
 16 kHz recording of the receiver. The gate still decides whether what came
@@ -390,7 +398,8 @@ How it is said:
 |---|---|
 | `call_spelling = phonetic` | `%CALL` as "Oscar, November, Zero, …" instead of letter by letter |
 | `time_style = spoken` | `%TIME` as "quarter past two" instead of 14:15 (English) |
-| `%PAUSE` in the text, `pause_ms` | a pause: `This is %CALL %PAUSE it's %TIME`. The parts are spoken separately and joined, so it works with every voice service |
+| `%PAUSE` in the text, `pause_ms` | a pause: `This is %CALL, %PAUSE it's %TIME`. The parts are spoken separately and joined, so it works with every voice service. The comma before it stays: the voice then says the callsign as a sentence that goes on |
+| `level_db` | how loud, dBFS RMS like `[audio] normalize_target_db` (−16; −8 is about as loud as a station). The peaks of a synthetic voice go under a limiter |
 | `speed` | slower or faster speech (ElevenLabs 0.7–1.2, e.g. `0.8`) |
 | `voice`, `model`, `style`, `url` | which voice; for ElevenLabs `voice` is the voice id |
 
