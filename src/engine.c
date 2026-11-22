@@ -463,16 +463,57 @@ static void announce_begin(engine_t *e)
     for (int off = 0; off + e->frame <= n; off += e->frame)
         lvl_add(&l, pcm + off, e->frame);
     float gain = powf(10.0f, (an->level_db - lvl_db(&l)) / 20.0f);
-    float top = 0.9f * 32767.0f / (float)(l.peak > 0 ? l.peak : 1);    /* never into the stops */
-    if (gain > top) gain = top;
     int frames = (n + e->frame - 1) / e->frame;
     int16_t *whole = calloc((size_t)frames * (size_t)e->frame, sizeof(int16_t));
     if (!whole) {
         free(pcm);
         return;
     }
-    for (int i = 0; i < n; i++)
-        whole[i] = sat16((float)pcm[i] * gain);
+    /* A synthetic voice has peaks 20 dB above its level: holding the whole
+     * file back for them leaves the speech far under what a station is
+     * brought to. So the level is what is asked, and the peaks are held under
+     * the stops by a limiter that sees them coming: the gain of each 4 ms is
+     * the lowest of it and its two neighbours on either side, with a straight
+     * line between the middles — never over the ceiling, and no clicks. */
+    const float ceil_v = 0.9f * 32767.0f;
+    int blk = e->cfg->audio.sample_rate / 250;
+    if (blk < 1) blk = 1;
+    int nb = (n + blk - 1) / blk;
+    float *bg = malloc(sizeof(float) * (size_t)nb * 2);
+    if (bg) {
+        float *bm = bg + nb;
+        for (int q = 0; q < nb; q++) {
+            int pk = 0;
+            for (int i = q * blk; i < n && i < (q + 1) * blk; i++) {
+                int v = pcm[i] < 0 ? -pcm[i] : pcm[i];
+                if (v > pk) pk = v;
+            }
+            float out = (float)pk * gain;
+            bg[q] = out > ceil_v ? ceil_v / out : 1.0f;
+        }
+        for (int q = 0; q < nb; q++) {
+            float m = bg[q];
+            for (int k = q - 2; k <= q + 2; k++)
+                if (k >= 0 && k < nb && bg[k] < m) m = bg[k];
+            bm[q] = m;
+        }
+        for (int i = 0; i < n; i++) {
+            float pos = ((float)i - (float)blk * 0.5f) / (float)blk;
+            int b0 = pos < 0 ? 0 : (int)pos;
+            if (b0 > nb - 1) b0 = nb - 1;
+            int b1 = b0 + 1 < nb ? b0 + 1 : b0;
+            float f = pos - (float)b0;
+            if (f < 0) f = 0;
+            if (f > 1) f = 1;
+            whole[i] = sat16((float)pcm[i] * gain * (bm[b0] + (bm[b1] - bm[b0]) * f));
+        }
+        free(bg);
+    } else {
+        float top = ceil_v / (float)(l.peak > 0 ? l.peak : 1);
+        if (gain > top) gain = top;
+        for (int i = 0; i < n; i++)
+            whole[i] = sat16((float)pcm[i] * gain);
+    }
     free(pcm);
     e->clip = whole;
     e->clip_n = frames * e->frame;
