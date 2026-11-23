@@ -129,7 +129,7 @@ ctcsstest: tools/ctcsstest.c src/ctcss.c src/audioproc.c src/wav.c
 check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt iqgen tagtest
 	sh tests/migrate.sh ./tailchaser-simplex
 	sh tests/soundcard.sh
-	python3 tests/tag.py ./tagtest ./tailchaser-duplex
+	python3 tests/tag.py ./tagtest ./tailchaser-duplex ./tailchaser-simplex
 	python3 tests/dtmf.py ./dtmftest ./gatetest
 	python3 tests/agc.py ./agctest
 	python3 tests/ctcss.py ./ctcsstest ./tailchaser-receiver

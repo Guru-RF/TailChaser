@@ -32,6 +32,11 @@ off.
   `local` = 1. The repeater does not know who that is.
 - **Nobody yet** (Morse identification, a spoken announcement, a test tone
   after the carrier came up): the repeater's own callsign, `local` = 1.
+- **A simplex node** (`tailchaser-simplex`) does the same, but it transmits
+  only what comes from the talkgroup, so its tag carries the node each over
+  came from. Its own callsign, with `local` = 1, is only where nobody is
+  talking yet. A simplex node usually has no hang time (`hang_ms = 0`), so
+  there is no quiet tail: a reader has to catch the tag in the pauses.
 - **The first frame** starts with the carrier, before anybody's audio, so it
   carries the repeater's own callsign; a talker's callsign follows from the
   next frame on.
