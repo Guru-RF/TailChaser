@@ -161,6 +161,9 @@ hang_ms = 1000
 timeout_s = 60
 test_s = 2
 
+[repeater]
+net_call = true
+
 [ident]
 callsign = {CALL}
 interval_min = 0
@@ -307,6 +310,9 @@ ctcss_tx = 131.8
 delay_ms = 200
 hang_ms = 1000
 timeout_s = 60
+
+[repeater]
+net_call = true
 
 [ident]
 callsign = {CALL}

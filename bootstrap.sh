@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS
 # TailChaser — set up a Raspberry Pi (Raspberry Pi OS / Debian Bookworm or
-# Trixie) as one of the four TailChaser programs, then build + install it.
+# Trixie) as one of the five TailChaser programs, then build + install it.
 #
 #   sudo ./bootstrap.sh <role> [mode]
 #
 #   role   simplex | duplex | receiver | transmitter | sdrreceiver
 #
-# Hardware: Pi + WM8960 Audio HAT + SA818 on /dev/serial0 (as SmartSPOT).
+# Hardware: Pi + SA818 on /dev/serial0 (as SmartSPOT) with a WM8960 or a TI
+# TLV320AIC32x4 audio module, or the repeater board (WM8960, bypass relays).
 #
 # On a new box:
 #   sudo ./bootstrap.sh <role>                 # full: deps + build/install + HAT +
@@ -44,6 +45,11 @@
 #   IDLE_WAIT=SECONDS   how long to wait for a node in use to fall silent before
 #                       it is restarted (default 300; 0 = do not wait)
 #   KEEP=1              keep the new daemon even when it has not logged in in time
+#   AUDIO=wm8960|tlv320 the audio module (default: what is found, else wm8960).
+#                       tlv320 is the TI TLV320AIC32x4, overlay audiosense-pi
+#   BOARD=rptr          the repeater board: its bypass relays (GPIO 7 and 8) are
+#                       switched off at every boot, so audio and PTT go through
+#                       this box (found by itself where /usr/sbin/repeater did it)
 set -u
 
 ROLE="${1:-}"
@@ -152,6 +158,58 @@ fi
 
 ALREADY=no
 systemctl is-active --quiet "$SERVICE" && ALREADY=yes
+
+# ---------------------------------------------------------------------------
+# Which audio module, which board — and is the sound card there after a
+# reboot? Where SvxLink ran, its unit often loaded the card (a run-time
+# overlay), set the mixer and switched the relays before it started: with
+# SvxLink off, nobody does. tailchaser-soundcard.service takes that over.
+SOUND_CONF="$CONF_DIR/soundcard.conf"
+AUDIO_KIND="${AUDIO:-}"; BOARD_KIND="${BOARD:-}"; MIXER_KIND=""
+if [ -f "$SOUND_CONF" ]; then
+    [ -n "$AUDIO_KIND" ] || AUDIO_KIND="$(sed -n 's/^AUDIO=//p' "$SOUND_CONF")"
+    [ -n "$BOARD_KIND" ] || BOARD_KIND="$(sed -n 's/^BOARD=//p' "$SOUND_CONF")"
+    MIXER_KIND="$(sed -n 's/^MIXER_SCRIPT=//p' "$SOUND_CONF")"
+fi
+if [ -z "$AUDIO_KIND" ]; then
+    if   grep -qi audiosense /proc/asound/cards 2>/dev/null;          then AUDIO_KIND=tlv320
+    elif grep -qi wm8960 /proc/asound/cards 2>/dev/null;              then AUDIO_KIND=wm8960
+    elif grep -q '^dtoverlay=audiosense-pi' "$CONFIG_TXT" 2>/dev/null; then AUDIO_KIND=tlv320
+    else AUDIO_KIND=wm8960
+    fi
+fi
+case "$AUDIO_KIND" in wm8960|tlv320) ;; *) die "AUDIO=$AUDIO_KIND — wm8960 or tlv320" ;; esac
+# the repeater board, as the old setup shows it: a script that sets its relays
+if [ -z "$BOARD_KIND" ] && [ -r /usr/sbin/repeater ] && grep -q 'gpio set 7 ' /usr/sbin/repeater \
+        && grep -q 'gpio set 8 ' /usr/sbin/repeater; then
+    BOARD_KIND=rptr
+fi
+case "$BOARD_KIND" in rptr|"") ;; *) die "BOARD=$BOARD_KIND — rptr, or nothing" ;; esac
+# the site's own mixer script, as SvxLink's unit ran it
+[ -n "$MIXER_KIND" ] || { [ -x /usr/sbin/repeater_volume ] && MIXER_KIND=/usr/sbin/repeater_volume; }
+case "$AUDIO_KIND" in wm8960) SOUND_OVERLAY=wm8960-soundcard ;; *) SOUND_OVERLAY=audiosense-pi ;; esac
+
+# Enable tailchaser-soundcard.service when the firmware does not load the card
+# by itself, or when there are relays to switch. Called once the program and
+# its units are installed.
+sound_at_boot() {
+    [ "$ROLE" != sdrreceiver ] || return 0
+    local by_firmware=no
+    grep -q "^dtoverlay=$SOUND_OVERLAY" "$CONFIG_TXT" 2>/dev/null && by_firmware=yes
+    if [ "$by_firmware" = yes ] && [ -z "$BOARD_KIND" ]; then
+        return 0                                    # the firmware does it all
+    fi
+    if [ "$by_firmware" = no ] && [ -z "$BOARD_KIND" ] && ! grep -qiE 'wm8960|audiosense' /proc/asound/cards 2>/dev/null; then
+        return 0                                    # a new box: step 4 sets the firmware up
+    fi
+    say "Sound card at boot: $AUDIO_KIND${BOARD_KIND:+, repeater board}${MIXER_KIND:+, mixer by $MIXER_KIND} — tailchaser-soundcard.service"
+    [ "$by_firmware" = yes ] || warn "nothing in $CONFIG_TXT loads the $AUDIO_KIND card at boot — tailchaser-soundcard.service will"
+    { [ "$by_firmware" = yes ] || echo "AUDIO=$AUDIO_KIND"
+      [ -z "$BOARD_KIND" ] || echo "BOARD=$BOARD_KIND"
+      [ -z "$MIXER_KIND" ] || echo "MIXER_SCRIPT=$MIXER_KIND"; } > "$SOUND_CONF"
+    run "systemctl daemon-reload"
+    run "systemctl enable tailchaser-soundcard.service"
+}
 if [ "$TAKEOVER" = yes ] && [ "$ALREADY" = no ]; then
     unit_exists "$MAIN_LEGACY" || die "there is no $MAIN_LEGACY on this box — use 'full' for a new one"
     [ -z "$OLD_CONF" ] || [ -r "$OLD_CONF" ] || die "$OLD_CONF not found — nothing to take over"
@@ -244,6 +302,7 @@ PY
 
 # ---------------------------------------------------------------------------
 # This box already runs this program: the run was a rebuild. Restart on it.
+sound_at_boot
 if [ "$ALREADY" = yes ]; then
     say "$PROG already runs this box — restarting it on the new build"
     run "$DESTBIN -t -c '$CONF'" || die "the configuration is not usable — $PROG was NOT restarted"
@@ -413,11 +472,18 @@ wm8960_asoc_compat_patch() {
 }
 
 # ---------------------------------------------------------------------------
+if [ "$AUDIO_KIND" = tlv320 ]; then
+    say "[4/6] TI TLV320AIC32x4 audio module: the driver is in the kernel"
+    # the codec is on I2C, the audio on I2S; the overlay comes with the firmware
+    grep -q '^dtparam=i2c_arm=on' "$CONFIG_TXT" || run "echo 'dtparam=i2c_arm=on' >> '$CONFIG_TXT'"
+    grep -q '^dtparam=i2s=on' "$CONFIG_TXT"     || run "echo 'dtparam=i2s=on' >> '$CONFIG_TXT'"
+    grep -q '^dtoverlay=audiosense-pi' "$CONFIG_TXT" || run "echo 'dtoverlay=audiosense-pi' >> '$CONFIG_TXT'"
+else
 say "[4/6] Installing WM8960 Audio HAT driver"
 # Kernel headers for the DKMS build (the Waveshare installer asks for the wrong
 # package name on Trixie, so make sure the right one is present first).
 run "apt-get install -y git linux-headers-$(uname -r) || apt-get install -y git linux-headers-rpi-v8 || true"
-if lsmod | grep -q snd_soc_wm8960_soundcard; then
+if lsmod | grep -q -E 'snd_soc_wm8960_soundcard' || grep -qi wm8960 /proc/asound/cards 2>/dev/null; then
     say "WM8960 (Waveshare) driver already loaded — skipping"
 else
     TMP="$(mktemp -d)"
@@ -433,10 +499,11 @@ else
     fi
     rm -rf "$TMP"
 fi
+fi
 
 # ---------------------------------------------------------------------------
 say "[5/6] Audio + UART"
-# Make the WM8960 the capture/playback card: turn off onboard + HDMI audio.
+# Make the audio module the capture/playback card: turn off onboard + HDMI audio.
 run "perl -i -pe 's/^dtparam=audio=on/dtparam=audio=off/g' '$CONFIG_TXT'"
 grep -q 'vc4-kms-v3d,noaudio' "$CONFIG_TXT" || \
     run "perl -i -pe 's/dtoverlay=vc4-kms-v3d\b/dtoverlay=vc4-kms-v3d,noaudio/g' '$CONFIG_TXT'"
@@ -450,8 +517,14 @@ say "[6/6] Enabling the $PROG service"
 MODEL="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)"
 say "Detected board: ${MODEL:-unknown}"
 run "systemctl daemon-reload"
-# enable (not --now): the WM8960 + UART changes need a reboot first.
+# enable (not --now): the sound card + UART changes need a reboot first.
 run "systemctl enable $SERVICE"
+# the repeater board's relays (and its mixer) at every boot
+if [ -n "$BOARD_KIND" ]; then
+    { [ -z "$BOARD_KIND" ] || echo "BOARD=$BOARD_KIND"
+      [ -z "$MIXER_KIND" ] || echo "MIXER_SCRIPT=$MIXER_KIND"; } > "$SOUND_CONF"
+    run "systemctl enable tailchaser-soundcard.service"
+fi
 
 cat <<EOF
 
@@ -461,7 +534,7 @@ Before it goes on the air:
        fill in the lines marked REQUIRED (they are listed at the top of the file)
      check it:  sudo $PROG -t -c $CONF
      Until these are set the service does not start.
-  2. sudo reboot                  # applies the WM8960 + UART firmware changes
+  2. sudo reboot                  # applies the sound card + UART firmware changes
   3. (not a receiver) first connection: the node sends a certificate request to
      the reflector; its sysop signs it, then the node logs in by itself.
   4. watch it:  journalctl -u $PROG -f     or  http://<this box>:8080/

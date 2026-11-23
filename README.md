@@ -216,9 +216,11 @@ the last overs with what the gate made of each, what was transmitted.
   status page say so);
 - the carrier comes up `[tx] delay_ms` (300) before the audio — nothing is
   lost, the audio waits — and stays up `hang_ms` (3000) after the last audio;
-- **which repeater an over from the network came through** is sent in fast
-  Morse after it: ON0OST → `OST` (`[repeater] net_call`, 34 wpm), in place of
-  the "bleep blop". A station that is not on a repeater is sent by its whole
+- **an over from the network** ends with the "bleep blop", one from the
+  repeater's own input with the roger beep;
+- **which repeater an over from the network came through** can be sent in fast
+  Morse after it instead: ON0OST → `OST` (`[repeater] net_call = true`, off
+  by default; 34 wpm), in place of the "bleep blop". A station that is not on a repeater is sent by its whole
   callsign (`net_call_full`; off, it gets the bleep blop). A station on the
   repeater's own input gets the roger beep. The Morse is
   dropped when somebody talks again before it. `net_call_when = before` sends
@@ -274,6 +276,21 @@ firmware configuration or enabling anything; `prime-firstboot` arms a
 self-installing image. Other sound cards work too — the mixer is then left
 alone (`playback_pct` / `capture_pct` only apply to a WM8960; set the levels
 with `alsamixer`).
+
+Which hardware, when it is not the WM8960 module:
+
+| | |
+|---|---|
+| `sudo AUDIO=tlv320 ./bootstrap.sh <role>` | the audio module with the TI codec (TLV320AIC32x4): no driver to build, the `audiosense-pi` overlay is put in `config.txt` |
+| `sudo BOARD=rptr ./bootstrap.sh <role>` | the repeater board: its two bypass relays (GPIO 7 and 8) are switched off at every boot, so audio and PTT go through this box |
+
+On a box that is already set up the installer sees both for itself: the
+sound card that is loaded, and the relays from the old setup's
+`/usr/sbin/repeater`. And it checks that the sound card will be there after
+a reboot — where nothing in `config.txt` loads it, `tailchaser-soundcard.service`
+does, before TailChaser starts, and runs the site's mixer script
+(`/usr/sbin/repeater_volume`) when there is one. What it does is in
+`/etc/tailchaser/soundcard.conf`.
 
 By hand: `make && sudo make install ROLE=simplex` (needs `libasound2-dev
 libopus-dev libgpiod-dev libssl-dev`; libgpiod 1.x and 2.x are both supported).
@@ -476,27 +493,14 @@ no automatic take-over yet: write `duplex.conf` or `transmitter.conf` from the
 example, and copy the node's key and certificate from SvxLink's
 `CERT_PKI_DIR` to `/var/lib/tailchaser/pki` so the reflector keeps knowing it.
 
-**What SvxLink's unit did before it started is yours to keep.** Read
-`systemctl cat svxlink` for `ExecStartPre=` lines before you switch it off: on
-some boards that is where the sound card is loaded (a WM8960 as a run-time
-overlay), the mixer is set, or a relay is switched. Without them the box
-works until the next reboot, and then finds no sound card. Put those commands
-in a small unit of your own that runs before TailChaser:
-
-```ini
-# /etc/systemd/system/site-audio.service
-[Unit]
-Before=tailchaser-duplex.service
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/bin/wm8960-soundcard
-ExecStart=/usr/sbin/repeater_volume
-[Install]
-WantedBy=multi-user.target
-```
-
-and reboot once to see it come back by itself.
+**What SvxLink's unit did before it started.** On some boards SvxLink's
+unit loaded the sound card (a WM8960 as a run-time overlay), set the mixer
+and switched a relay in its `ExecStartPre=` lines — with SvxLink off the box
+works until the next reboot, and then finds no sound card. `bootstrap.sh`
+takes the sound card, the repeater board's relays and the mixer script over
+in `tailchaser-soundcard.service` (see Installing). Anything else in
+`systemctl cat svxlink` is yours to keep; reboot once to see the box come
+back by itself.
 
 On a box that already runs the program, `bootstrap.sh <role>` is an update:
 rebuild, install, check the configuration, restart.

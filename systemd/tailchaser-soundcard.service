@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS
+# Once per boot, before TailChaser: the sound card when the firmware did not
+# load it, the repeater board's bypass relays, the mixer. bootstrap.sh enables
+# it where it is needed and writes /etc/tailchaser/soundcard.conf.
+[Unit]
+Description=TailChaser — sound card, bypass relays and mixer before the start
+Documentation=https://github.com/Guru-RF/TailChaser
+After=sound.target wm8960-soundcard.service
+Before=tailchaser-simplex.service tailchaser-duplex.service tailchaser-receiver.service tailchaser-transmitter.service
+ConditionPathExists=/etc/tailchaser/soundcard.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=90
+ExecStart=/usr/local/sbin/tailchaser-soundcard
+
+[Install]
+WantedBy=multi-user.target

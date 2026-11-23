@@ -1,0 +1,81 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS
+# tailchaser-soundcard — what has to be done on this box before TailChaser can
+# start, once per boot (tailchaser-soundcard.service):
+#
+#   - the sound card, when the firmware did not load it: a WM8960 or the TI
+#     TLV320AIC32x4 ("audiosense-pi") as a run-time overlay;
+#   - on the repeater board: the two bypass relays off (GPIO 7 and 8 high), so
+#     the audio and the PTT go through this box;
+#   - the mixer, when the site has a script for it.
+#
+# /etc/tailchaser/soundcard.conf, written by bootstrap.sh:
+#   AUDIO=wm8960 | tlv320        (nothing: leave the sound card alone)
+#   BOARD=rptr                   (nothing: no relays)
+#   MIXER_SCRIPT=/usr/sbin/repeater_volume
+CONF="${1:-/etc/tailchaser/soundcard.conf}"
+CARDS="${TAILCHASER_CARDS:-/proc/asound/cards}"
+WAIT="${TAILCHASER_CARD_WAIT:-30}"
+AUDIO=""; BOARD=""; MIXER_SCRIPT=""
+if [ -r "$CONF" ]; then
+    while IFS='=' read -r k v; do
+        case "$k" in
+            AUDIO)        AUDIO="$v" ;;
+            BOARD)        BOARD="$v" ;;
+            MIXER_SCRIPT) MIXER_SCRIPT="$v" ;;
+        esac
+    done < "$CONF"
+fi
+
+case "$AUDIO" in
+    wm8960) NAME=wm8960;     OVERLAY=wm8960-soundcard ;;
+    tlv320) NAME=audiosense; OVERLAY=audiosense-pi ;;
+    "")     NAME="";         OVERLAY="" ;;
+    *)      echo "tailchaser-soundcard: AUDIO=$AUDIO in $CONF is not wm8960 or tlv320" >&2; exit 2 ;;
+esac
+case "$BOARD" in rptr|"") ;; *) echo "tailchaser-soundcard: BOARD=$BOARD in $CONF is not rptr" >&2; exit 2 ;; esac
+
+have() { grep -qi "$NAME" "$CARDS" 2>/dev/null; }
+
+pin_high() {
+    if command -v pinctrl >/dev/null 2>&1; then
+        pinctrl set "$1" op dh
+    elif command -v raspi-gpio >/dev/null 2>&1; then
+        raspi-gpio set "$1" op && raspi-gpio set "$1" dh
+    else
+        echo "tailchaser-soundcard: neither pinctrl nor raspi-gpio — GPIO $1 not set" >&2
+        return 1
+    fi
+}
+
+if [ "$BOARD" = rptr ]; then
+    pin_high 7 && pin_high 8 || exit 1
+    echo "repeater board: bypass relays off (GPIO 7 and 8 high)"
+fi
+
+if [ -n "$NAME" ]; then
+    if have; then
+        echo "sound card ($AUDIO) is there"
+    else
+        if [ "$AUDIO" = wm8960 ] && [ -x /usr/bin/wm8960-soundcard ]; then
+            /usr/bin/wm8960-soundcard               # the driver's own loader
+        else
+            dtparam i2c_arm=on
+            dtoverlay "$OVERLAY"
+        fi
+        i=0
+        while ! have && [ "$i" -lt "$WAIT" ]; do sleep 1; i=$((i + 1)); done
+        have || { echo "tailchaser-soundcard: the $AUDIO sound card did not appear" >&2; exit 1; }
+        echo "sound card ($AUDIO) loaded"
+    fi
+fi
+
+if [ -n "$MIXER_SCRIPT" ]; then
+    if [ -x "$MIXER_SCRIPT" ]; then
+        "$MIXER_SCRIPT" >/dev/null || echo "tailchaser-soundcard: $MIXER_SCRIPT failed" >&2
+        echo "mixer set by $MIXER_SCRIPT"
+    else
+        echo "tailchaser-soundcard: $MIXER_SCRIPT is not there — mixer left as it is" >&2
+    fi
+fi
+exit 0

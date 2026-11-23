@@ -125,6 +125,7 @@ ctcsstest: tools/ctcsstest.c src/ctcss.c src/audioproc.c src/wav.c
 # reflector, the repeater and the SA818.
 check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt iqgen
 	sh tests/migrate.sh ./tailchaser-simplex
+	sh tests/soundcard.sh
 	python3 tests/dtmf.py ./dtmftest ./gatetest
 	python3 tests/agc.py ./agctest
 	python3 tests/ctcss.py ./ctcsstest ./tailchaser-receiver
@@ -166,6 +167,8 @@ install: $(addprefix tailchaser-,$(INSTALL_ROLES))
 	  echo "installed tailchaser-$$r"; \
 	done
 	@install -Dm755 tools/tailchaser-announce $(DESTDIR)$(PREFIX)/bin/tailchaser-announce
+	@install -Dm755 tools/tailchaser-soundcard $(DESTDIR)$(PREFIX)/sbin/tailchaser-soundcard
+	@install -Dm644 systemd/tailchaser-soundcard.service $(DESTDIR)/etc/systemd/system/tailchaser-soundcard.service
 	@install -Dm644 systemd/tailchaser-announce@.service $(DESTDIR)/etc/systemd/system/tailchaser-announce@.service
 	@install -Dm644 systemd/tailchaser-announce@.timer $(DESTDIR)/etc/systemd/system/tailchaser-announce@.timer
 

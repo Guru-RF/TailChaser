@@ -210,8 +210,8 @@ roger_tones   = 800        # its pitch in Hz — or several, one after the other
 roger_net_beep = true      # "bleep blop" after an over from the talkgroup that gets
 roger_net_tones = 1200, 800  # no Morse after it (below): that one came in over the network
 roger_delay_ms = 200       # this long after the over
-net_call      = true       # Which repeater an over from the talkgroup came through,
-                           # in fast Morse: ON0OST by the letters after
+net_call      = false      # true = which repeater an over from the talkgroup came
+                           # through, in fast Morse: ON0OST by the letters after
 net_call_prefix = ON0      # this prefix — "OST".
 net_call_full = true       # A station that is not on a repeater: its callsign,
                            # whole (ON4ABC-P as ON4ABC). false = no Morse for it,

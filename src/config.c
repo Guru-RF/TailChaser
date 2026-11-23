@@ -148,7 +148,7 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->repeater.roger_tones[0] = 800;         /* blop */
     cfg->repeater.roger_n        = 1;
     cfg->repeater.roger_net_beep = true;
-    cfg->repeater.net_call          = true;
+    cfg->repeater.net_call          = false;
     cfg->repeater.net_call_after    = true;
     cfg->repeater.net_call_once     = false;
     cfg->repeater.net_call_full     = true;
