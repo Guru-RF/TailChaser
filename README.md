@@ -474,6 +474,18 @@ before the PTT and down just after it; with `pa_delay_ms` it is a sequencer
 instead — the exciter first, the amplifier that many milliseconds later, and
 off again before the exciter. Keep `[tx] delay_ms` at least as long.
 
+### Who is talking, for a machine
+
+`[tag] enabled = true` adds a noise-like signal to the transmit audio, about
+32 dB under the speech — a little more hiss to the ear — that carries the
+callsign of who is talking: the node a talkgroup over came from (without
+what follows a dash: ON4ABC-KNOB is ON4ABC), or the repeater's own callsign
+and "local" for a station on its input. A phone or a small device next to the
+radio's loudspeaker reads it, best in the quiet tail after an over; a
+VFO-Knob with its TailChaser Tag firmware does. The example configs switch it
+on; without a `[tag]` section it is off. The format (v0, it may still change)
+and how to read it are in [docs/TAG.md](docs/TAG.md).
+
 ## Upgrading and replacing SvxLink
 
 One command takes the settings (and the reflector key and certificate) over,
@@ -768,6 +780,7 @@ src/audio.c mixer.c sa818.c serial_worker.c gpio*.c      the hardware
 src/sdr.c sdr_kiwi.inc sdr_uber.inc   the web SDR client: OpenWebRX, KiwiSDR / Web-888, UberSDR
 src/status.c       status page, the HTTP server
 src/monitor.c      listening in: the audio over a websocket
+src/tag.c          the callsign tag under the transmit audio (docs/TAG.md)
 src/sdr_local.inc  an SDR on the USB port: RTL-SDR, HydraSDR RFOne (the FM receiver)
 src/admin.c admin.html   the admin portal and the API
 config/            one example per program
@@ -775,8 +788,10 @@ systemd/           one unit per program
 tools/             offline test tools, migration scripts, sdrmon.py (web SDR
                    comparison), devcal.py (deviation in Hz from a web SDR),
                    sdrlag.py (how far behind a web SDR is),
-                   tailchaser-announce (the spoken announcements)
-docs/              DETECTION.md (how the gate decides), API.md, the logo
+                   tailchaser-announce (the spoken announcements),
+                   tagtest (the callsign tag alone, as a WAV)
+docs/              DETECTION.md (how the gate decides), API.md, TAG.md (the
+                   callsign tag), the logo
 tests/             the hardware-free test suites
 ```
 

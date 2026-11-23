@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS */
 #include "audio.h"
+#include "tag.h"
 #include "log.h"
 #include "sdr.h"
 #include "util.h"
@@ -41,6 +42,7 @@ struct audio {
     /* transmit frames: main -> thread */
     frame_ring_t *txq;
     atomic_bool ptt, tx_flush;
+    struct tag *tag;            /* the callsign tag, added while keyed */
 
     struct sdr *sdr;            /* the receiver is a web SDR */
     FILE       *rec;            /* bench recording of the transmit side */
@@ -86,6 +88,7 @@ int audio_pop(audio_t *a, audio_frame_t *out)
 
 void audio_set_ptt(audio_t *a, bool keyed)   { atomic_store(&a->ptt, keyed); }
 void audio_tx_flush(audio_t *a)              { atomic_store(&a->tx_flush, true); }
+void audio_set_tag(audio_t *a, struct tag *tag) { a->tag = tag; }
 int  audio_tx_queued(const audio_t *a)       { return (int)frame_ring_count(a->txq); }
 
 int audio_tx_push(audio_t *a, const int16_t *pcm, int n)
@@ -110,9 +113,10 @@ static void next_tx_frame(audio_t *a, int16_t *out)
         int16_t scratch[AUDIO_MAX_FRAME];
         while (frame_ring_pop(a->txq, scratch, sizeof scratch) >= 0) { /* drop */ }
     }
-    if (frame_ring_pop(a->txq, out, sizeof(int16_t) * (size_t)a->period) > 0)
-        return;
-    memset(out, 0, sizeof(int16_t) * (size_t)a->period);
+    if (frame_ring_pop(a->txq, out, sizeof(int16_t) * (size_t)a->period) <= 0)
+        memset(out, 0, sizeof(int16_t) * (size_t)a->period);
+    if (a->tag)                         /* also in the tail, where there is nothing else */
+        tag_mix(a->tag, out, a->period, atomic_load(&a->ptt));
 }
 
 /* ---- ALSA ---- */
@@ -480,6 +484,7 @@ void audio_free(audio_t *a)
     }
     if (a->efd >= 0) close(a->efd);
     if (a->txq) frame_ring_free(a->txq);
+    tag_free(a->tag);
     pthread_mutex_destroy(&a->mu);
     free(a);
 }

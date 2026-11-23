@@ -9,6 +9,7 @@
 /gatetest
 /dtmftest
 /agctest
+/tagtest
 
 # Editor / OS cruft
 .DS_Store

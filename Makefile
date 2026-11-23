@@ -52,7 +52,7 @@ SRC := src/main.c src/role.c src/config.c src/engine.c src/audio.c src/audioproc
        src/jitter.c src/opus_codec.c \
        src/nettrx.c src/netrx.c src/sdr.c src/monitor.c \
        src/status.c src/admin.c src/sa818.c src/serial_worker.c src/mixer.c \
-       src/detect.c src/log.c src/util.c src/wav.c
+       src/detect.c src/log.c src/util.c src/wav.c src/tag.c
 GPIOD_MAJOR := $(firstword $(subst ., ,$(shell pkg-config --modversion libgpiod 2>/dev/null)))
 ifdef NOGPIO
 SRC += src/gpio_stub.c
@@ -65,7 +65,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(OBJ:.o=.d) $(patsubst %,src/bin/%.d,$(ROLES))
 
 TOOL_CFLAGS := $(CSTD) $(WARN) $(OPT) -D_GNU_SOURCE -Isrc
-TOOLS := vadtest gatetest dtmftest agctest ctcsstest opuspkt iqgen
+TOOLS := vadtest gatetest dtmftest agctest ctcsstest opuspkt iqgen tagtest
 
 PREFIX  ?= /usr/local
 DESTDIR ?=
@@ -111,6 +111,9 @@ gatetest: tools/gatetest.c src/gate.c src/vad.c src/dtmf.c src/wav.c
 agctest: tools/agctest.c src/audioproc.c src/wav.c
 	$(CC) $(TOOL_CFLAGS) $^ -o $@ -lm
 
+tagtest: tools/tagtest.c src/tag.c
+	$(CC) $(TOOL_CFLAGS) $^ -o $@ -lm -lpthread
+
 iqgen: tools/iqgen.c
 	$(CC) $(CFLAGS) -o $@ $< -lm
 
@@ -123,9 +126,10 @@ ctcsstest: tools/ctcsstest.c src/ctcss.c src/audioproc.c src/wav.c
 # Without hardware: the programs play generated WAV files as squelch openings
 # and record what they would transmit, while stand-ins take the part of the
 # reflector, the repeater and the SA818.
-check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt iqgen
+check: $(BINS) dtmftest gatetest agctest ctcsstest opuspkt iqgen tagtest
 	sh tests/migrate.sh ./tailchaser-simplex
 	sh tests/soundcard.sh
+	python3 tests/tag.py ./tagtest ./tailchaser-duplex
 	python3 tests/dtmf.py ./dtmftest ./gatetest
 	python3 tests/agc.py ./agctest
 	python3 tests/ctcss.py ./ctcsstest ./tailchaser-receiver

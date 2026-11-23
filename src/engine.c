@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later — TailChaser, see LICENSE and AUTHORS */
 #include "engine.h"
+#include "tag.h"
 #include "monitor.h"
 #include "wav.h"
 #include <sys/stat.h>
@@ -146,6 +147,8 @@ struct engine {
     int         delay_left, tail_left, tail_frames;
     bool        lockout;        /* timed out: off until the over has ended */
     float       tx_gain, tx_level;
+    struct tag *tag;                    /* the callsign tag; the audio thread adds it */
+    char        tag_own[32];            /* this station, for an over on its own input */
     txshape_t   shape;
     void      (*unkey_hook)(void *);
     void       *unkey_ctx;
@@ -322,6 +325,8 @@ static void ptt(engine_t *e, bool on)
 static void key(engine_t *e, const char *why)
 {
     e->own_tx = false;
+    /* nobody yet: the station itself, until an over says who (docs/TAG.md) */
+    tag_set(e->tag, e->tag_own, true);
     ptt(e, true);
     e->delay_left = ms_to_frames(e, e->cfg->tx.delay_ms);
     e->tx = e->delay_left > 0 ? TX_DELAY : TX_ON;
@@ -698,6 +703,21 @@ static void call_send(engine_t *e, const char *call)
     log_debug("net: %s — \"%s\" in Morse", call[0] ? call : "?", clean);
 }
 
+/* The tag says which station an over from the talkgroup came from: its
+ * callsign without what follows a dash (ON4ABC-KNOB is ON4ABC), as in Morse. */
+static void tag_who(engine_t *e, const char *call)
+{
+    if (!e->tag)
+        return;
+    char who[32];
+    snprintf(who, sizeof who, "%s", call ? call : "");
+    who[strcspn(who, "-")] = '\0';
+    if (who[0])
+        tag_set(e->tag, who, false);
+    else
+        tag_set(e->tag, e->tag_own, true);
+}
+
 static void feed(engine_t *e)
 {
     int16_t out[AUDIO_MAX_FRAME];
@@ -714,6 +734,7 @@ static void feed(engine_t *e)
         if (e->rq_len > 0 && (e->rpt_hold == 0 || e->rq_len >= JITTER_FRAMES || !e->local_over)) {
             rptq_pop(e, out);
             e->own_tx = false;
+            tag_set(e->tag, e->tag_own, true);          /* a station on the input */
             e->rpt_hold = 0;
             have = true;
             if (e->nq_len > 0) {
@@ -726,6 +747,7 @@ static void feed(engine_t *e)
         if (!have && e->nq_len > 0 && !e->clip_solo && (e->net_hold == 0 || e->nq_len >= JITTER_FRAMES)) {
             netq_pop(e, out);
             e->own_tx = false;
+            tag_who(e, e->over.call[0] ? e->over.call : e->talker);
             e->net_hold = 0;
             e->net_fed_at = e->t_ms;
             have = true;
@@ -2171,6 +2193,17 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
     }
     e->tx_gain = powf(10.0f, cfg->tx.gain_db / 20.0f);
     e->tx_level = powf(10.0f, cfg->tx.level_db / 20.0f);
+    if (role->tx && cfg->tag.enabled) {
+        /* added after the transmit level and the limiter: the same step down */
+        e->tag = tag_new(32767.0f * powf(10.0f, (cfg->tag.level_db + cfg->tx.level_db) / 20.0f));
+        if (e->tag) {
+            snprintf(e->tag_own, sizeof e->tag_own, "%s",
+                     cfg->link.callsign[0] ? cfg->link.callsign : cfg->ident.callsign);
+            e->tag_own[strcspn(e->tag_own, "-")] = '\0';
+            audio_set_tag(audio, e->tag);           /* the audio keeps and frees it */
+            log_info("tag: who is talking goes out under the audio at %.0f dBFS (docs/TAG.md)", (double)cfg->tag.level_db);
+        }
+    }
     e->duck = 1.0f;
     e->duck_to = powf(10.0f, -cfg->tx.duck_db / 20.0f);
     e->recover_frames = ms_to_frames(e, cfg->tx.rx_recover_ms);

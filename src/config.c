@@ -63,6 +63,8 @@ void config_defaults(config_t *cfg, const role_t *role)
     snprintf(cfg->announce.dir, sizeof cfg->announce.dir, "/var/lib/tailchaser/announce");
     cfg->announce.interval_min = 15;
     cfg->announce.level_db     = -16.0f;
+    cfg->tag.enabled           = false;
+    cfg->tag.level_db          = -43.0f;
     cfg->announce.wait_s       = 120;
     cfg->announce.max_s        = 30;
     cfg->location.antenna_dir = -1;
@@ -611,6 +613,9 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "filter_emphasis")) INT(r->filter_emphasis);
         if (!strcmp(key, "filter_highpass")) INT(r->filter_highpass);
         if (!strcmp(key, "filter_lowpass"))  INT(r->filter_lowpass);
+    } else if (!strcmp(sec, "tag")) {
+        if (!strcmp(key, "enabled"))      BOOL(cfg->tag.enabled);
+        if (!strcmp(key, "level_db"))     FLT(cfg->tag.level_db);
     } else if (!strcmp(sec, "announce")) {
         announce_config_t *an = &cfg->announce;
         if (!strcmp(key, "enabled"))      BOOL(an->enabled);
@@ -1017,6 +1022,12 @@ int config_validate(const config_t *cfg, const role_t *role)
                 FAIL("config: [announce] level_db must be -40..-3 (dBFS)");
             if (an->wait_s < 0 || an->wait_s > 600 || an->max_s < 1 || an->max_s > 120)
                 FAIL("config: [announce] wait_s must be 0..600 and max_s 1..120");
+        }
+        if (cfg->tag.enabled) {
+            if (cfg->tag.level_db < -70.0f || cfg->tag.level_db > -25.0f)
+                FAIL("config: [tag] level_db must be -70..-25 (dBFS)");
+            if (cfg->audio.sample_rate != 16000)
+                FAIL("config: [tag] needs a sample rate of 16000");
         }
         if (t->level_db < -40.0f || t->level_db > 20.0f)
             FAIL("config: [tx] level_db must be -40..20");

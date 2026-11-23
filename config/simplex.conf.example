@@ -251,6 +251,15 @@ provider      = openai     # openai (and services with the same API) | elevenlab
 #voice        = alloy      # elevenlabs: the voice id
 #style        = Calm and clear, like a radio announcer.   # openai: how to say it
 
+# Who is talking, for a machine: a noise-like signal under the transmit audio
+# that a phone or a small device next to a radio reads the callsign from
+# (docs/TAG.md). A listener hears a little more hiss in the quiet tail.
+# Format v0: it may change. Without a [tag] section it is off.
+[tag]
+enabled       = true
+level_db      = -43        # dBFS RMS, as speech is measured: 32 dB under speech
+                           # that was brought to -11
+
 # ----------------------------------------------------------------------------
 # The squelch gate: Only send to the talkgroup when somebody is actually talking.
 #

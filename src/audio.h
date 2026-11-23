@@ -60,6 +60,10 @@ unsigned long audio_underruns(const audio_t *a);    /* playback xruns           
 void audio_set_ptt(audio_t *a, bool keyed);
 /* Queue one frame (exactly one period of samples). 0, or -1 if the queue is full. */
 int  audio_tx_push(audio_t *a, const int16_t *pcm, int n);
+struct tag;
+/* The callsign tag is added to what goes to the transmitter while it is keyed.
+ * Set before audio_start(); audio_free() frees it. */
+void audio_set_tag(audio_t *a, struct tag *tag);
 int  audio_tx_queued(const audio_t *a);
 /* Throw away what is queued (a transmission that is being abandoned). */
 void audio_tx_flush(audio_t *a);

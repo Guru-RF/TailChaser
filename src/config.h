@@ -207,6 +207,14 @@ typedef struct {
     int   max_s;            /* never longer than this                               */
 } announce_config_t;
 
+/* [tag] — who is talking, as a noise-like signal far under the speech
+ * (docs/TAG.md): read by a phone or a small device next to a radio. */
+typedef struct {
+    bool  enabled;
+    float level_db;         /* dBFS RMS, as the speech is measured: -43 is 32 dB
+                             * under speech that was brought to -11             */
+} tag_config_t;
+
 /* [location] — what the reflector's dashboards and maps show of the station.
  * Frequencies and tones are taken from [radio] and [ctcss] where they are
  * known; here is what the program cannot know, or what it knows wrong. */
@@ -291,6 +299,7 @@ typedef struct {
     gpio_config_t   gpio;
     radio_config_t  radio;
     announce_config_t announce;
+    tag_config_t tag;
     location_config_t location;
     ctcss_config_t ctcss;
     tx_config_t     tx;
