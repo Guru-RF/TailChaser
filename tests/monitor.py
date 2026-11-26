@@ -6,7 +6,9 @@
 
 A repeater on file audio: a station on the input for 3 s. With
 [status] monitor = true two websocket listeners hear the input and what is
-transmitted; without it there is nothing to connect to.
+transmitted; without it there is nothing to connect to. Then two short overs
+with one listener on the output alone: the page has to be able to play each
+over through to the end of its roger beep without a break.
 """
 import base64
 import json
@@ -78,7 +80,20 @@ def rms_db(x):
     return 10 * math.log10(sum(v * v for v in x) / max(1, len(x)) / 32768.0 ** 2 + 1e-12)
 
 
-def node(exe, tmp, wav, monitor):
+def page_starts(msgs):
+    """The messages at which the status page's player starts again from silence.
+    As in status.c: each message is played as it comes, after the one before;
+    one that comes when that has run out (or the first) starts 0.2 s later."""
+    at, out = 0.0, set()
+    for i, (t, c) in enumerate(msgs):
+        if at < t + 0.02 or at > t + 1.5:
+            out.add(i)
+            at = t + 0.2
+        at += len(c) / 16000
+    return out
+
+
+def node(exe, tmp, wav, monitor, more=""):
     hp = free_port()
     conf = f"{tmp}/duplex-{monitor}.conf"
     with open(conf, "w") as f:
@@ -100,7 +115,7 @@ hang_ms = 500
 [gate]
 mode = off
 [audio]
-alsa_device = file:pause:2000,{wav}
+alsa_device = file:pause:2000,{wav}{more}
 [status]
 http_port = {hp}
 bind = 127.0.0.1
@@ -124,10 +139,14 @@ def main():
     top = max(abs(x) for x in base)
     wav = f"{tmp}/v.wav"
     write_wav(wav, [x * 0.4 / top for x in base])
+    short = f"{tmp}/v1.wav"
+    write_wav(short, [x * 0.4 / top for x in base[:16000]])
     print("listening in from the status page")
 
     off, hp0 = node(exe, tmp, wav, False)
-    on, hp = node(exe, tmp, wav, True)
+    # the station at 3..6 s; after 3 s of closed squelch and 1 s more, two short
+    # overs at 10..11 s and 14..15 s
+    on, hp = node(exe, tmp, wav, True, f",pause:1000,{short},{short}")
     try:
         out0 = {}
         listen(hp0, "rx", 0.5, out0)
@@ -151,6 +170,43 @@ def main():
               f"the output: what goes to the transmitter, while it transmits ({len(tx) / 16000:.1f} s)")
         loudt = [i for i in range(0, len(tx) - 1600, 1600) if rms_db(tx[i:i + 1600]) > -50]
         check(20 <= len(loudt) <= 36, f"...the station repeated, and the beep ({len(loudt) / 10:.1f} s loud)")
+
+        # Two short overs more, with one listener on the output alone: then
+        # nothing else wakes its sender up. The last piece of each over has to
+        # come in time for the page to play the roger beep in one go; it used to
+        # come a quarter of a second late, on its own: "bleep blop ... beep".
+        solo = {}
+        listen(hp, "tx", 9.0, solo)
+        msgs = solo["tx"][1]
+        starts = page_starts(msgs)
+        overs = []
+        for i, (t, c) in enumerate(msgs):
+            if overs and t - msgs[overs[-1][-1]][0] < 1.0:
+                overs[-1].append(i)
+            else:
+                overs.append([i])
+        said = []
+        for o in overs:
+            pcm = [v for i in o for v in msgs[i][1]]
+            loud = [rms_db(pcm[k:k + 160]) > -45 for k in range(0, len(pcm) - 159, 160)]
+            end = max((k for k, f in enumerate(loud) if f), default=0)
+            beg = end
+            while beg > 0 and loud[beg - 1]:
+                beg -= 1
+            b0, b1, pos, carry = beg * 160, (end + 1) * 160, 0, []
+            for i in o:
+                if pos < b1 and pos + len(msgs[i][1]) > b0:
+                    carry.append(i)
+                pos += len(msgs[i][1])
+            broke = [i for i in carry[1:] if i in starts]
+            said.append((not broke and 0.05 <= (b1 - b0) / 16000 <= 0.2,
+                         f"{(b1 - b0) / 16:.0f} ms of beep in {len(carry)} message(s)"
+                         + (f", the last {(msgs[carry[-1]][0] - msgs[carry[-2]][0]) * 1000:.0f} ms after the one before"
+                            if len(carry) > 1 else "")
+                         + (" — played on its own" if broke else "")))
+        check(" 101" in solo["tx"][0] and len(overs) == 2 and all(ok for ok, _ in said),
+              f"one listener on the output alone: each over played through to the end of its beep "
+              f"({len(overs)} overs of 2: {'; '.join(s for _, s in said)})")
         time.sleep(1.2)
         log = open(f"{tmp}/node-True.log").read()
         check("listening in is ON" in log and "somebody listens to the input" in log and "a listener on the output left" in log,

@@ -17,10 +17,14 @@
 #include <openssl/sha.h>
 
 #include "log.h"
+#include "util.h"
 
 #define MAX_LISTENERS 4
 #define STORE         32000         /* samples: 2 s */
 #define CHUNK         1600          /* samples per message: 100 ms */
+#define REST_NS       60000000ull   /* nothing new for 60 ms: what is left goes out */
+#define WAIT_NS       250000000ull  /* nothing at all: look at the socket this often */
+#define PING_NS       5000000000ull /* nothing sent for 5 s: a ping */
 
 typedef struct {
     monitor_t      *m;
@@ -29,6 +33,7 @@ typedef struct {
     pthread_t       thread;
     int16_t         buf[STORE];
     int             head, len;
+    uint64_t        fed;            /* mono_ns() when audio last came in */
 } listener_t;
 
 struct monitor {
@@ -59,6 +64,7 @@ void monitor_feed(monitor_t *m, int which, const int16_t *pcm, int n)
     if (!m || atomic_load(&m->n[which]) == 0)
         return;
     pthread_mutex_lock(&m->mu);
+    uint64_t now = mono_ns();
     for (int i = 0; i < MAX_LISTENERS; i++) {
         listener_t *l = &m->l[i];
         if (!l->used || l->which != which)
@@ -70,6 +76,7 @@ void monitor_feed(monitor_t *m, int which, const int16_t *pcm, int n)
             }
             l->buf[(l->head + l->len++) % STORE] = pcm[k];
         }
+        l->fed = now;
     }
     pthread_cond_broadcast(&m->cv);
     pthread_mutex_unlock(&m->mu);
@@ -108,19 +115,26 @@ static void *listener_main(void *arg)
     listener_t *l = arg;
     monitor_t *m = l->m;
     int16_t out[CHUNK];
-    int idle = 0;
+    uint64_t said = mono_ns();                  /* the last message out: audio or a ping */
     for (;;) {
         pthread_mutex_lock(&m->mu);
-        if (l->len < CHUNK && !l->quit) {
-            struct timespec ts;
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            ts.tv_nsec += 250000000L;
-            if (ts.tv_nsec >= 1000000000L) { ts.tv_nsec -= 1000000000L; ts.tv_sec++; }
-            pthread_cond_timedwait(&m->cv, &m->mu, &ts);
+        /* Whole chunks while audio flows; what is left once nothing new has come
+         * for 60 ms. That is the end of an over: the tail is silence the audio
+         * thread makes, nothing more comes here. (It used to wait for a second
+         * wake-up, and when nothing else woke it that was the 250 ms timeout: the
+         * last 20 ms of the roger beep came on their own, a quarter of a second
+         * after the rest, and the page played "bleep blop ... beep".) */
+        uint64_t now = mono_ns();
+        bool rest = l->len > 0 && now - l->fed >= REST_NS;
+        if (l->len < CHUNK && !rest && !l->quit) {
+            uint64_t until = l->len > 0 ? l->fed + REST_NS : now + WAIT_NS;
+            struct timespec ts = { (time_t)(until / 1000000000ull), (long)(until % 1000000000ull) };
+            pthread_cond_timedwait(&m->cv, &m->mu, &ts);        /* the clock is CLOCK_MONOTONIC */
+            now = mono_ns();
+            rest = l->len > 0 && now - l->fed >= REST_NS;
         }
         bool quit = l->quit;
-        /* whole chunks while audio flows; the rest of an over once it has stopped */
-        int n = l->len >= CHUNK ? CHUNK : idle >= 1 ? l->len : 0;
+        int n = l->len >= CHUNK ? CHUNK : rest ? l->len : 0;
         for (int i = 0; i < n; i++)
             out[i] = l->buf[(l->head + i) % STORE];
         l->head = (l->head + n) % STORE;
@@ -129,11 +143,13 @@ static void *listener_main(void *arg)
         if (quit)
             break;
         if (n > 0) {
-            idle = 0;
+            said = now;
             if (ws_out(l->fd, 2, out, sizeof(int16_t) * (size_t)n) != 0)     /* little-endian hosts only */
                 break;
-        } else if (++idle % 20 == 0 && ws_out(l->fd, 9, "", 0) != 0) {       /* a ping every 5 s */
-            break;
+        } else if (now - said >= PING_NS) {
+            said = now;
+            if (ws_out(l->fd, 9, "", 0) != 0)
+                break;
         }
         /* what the browser says: nothing we need — but a close, or the end */
         struct pollfd p = { l->fd, POLLIN, 0 };
@@ -170,6 +186,7 @@ bool monitor_accept(monitor_t *m, int fd, int which, const char *ws_key)
         l->fd = fd;
         l->which = which;
         l->head = l->len = 0;
+        l->fed = 0;
     }
     pthread_mutex_unlock(&m->mu);
     if (!l)

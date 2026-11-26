@@ -81,6 +81,8 @@ connection after each (`Connection: close`).
 With `[status] monitor = true` (the status has `"monitor": true` then), two
 websockets carry the audio of the receiver and of what is transmitted:
 binary messages of 16-bit little-endian mono PCM, 16 kHz, about 100 ms each.
+`/monitor/tx` has messages only while something is sent — none in the quiet
+tail; the last one of an over is shorter and follows within 60 ms.
 No key: it is the status page's "Listen" card. `404` when it is off, `503` when
 four listeners are there already.
 
