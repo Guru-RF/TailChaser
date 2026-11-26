@@ -189,7 +189,7 @@ normalize_max_gain_db = 15 # transmitted has one level, whoever sent it
 gain_db       = 0          # software gain on talkgroup audio before it is transmitted
 level_db      = 0          # software gain on everything that is transmitted — speech,
                            # beeps, Morse, test tones (SvxLink: MASTER_GAIN)
-duck_db       = 6          # Morse and announcements are this much quieter while
+duck_db       = 12         # Morse and announcements are this much quieter while
                            # somebody is talking, and come back up when they stop
 preemphasis   = false      # true = 6 dB/octave pre-emphasis in software, for a radio whose
                            # own pre-emphasis is bypassed (filter_emphasis = 1)
@@ -240,6 +240,10 @@ interval_min  = 60         # On the clock: 60 = every hour on the hour, 30 = als
 wpm           = 24         # Morse speed
 pitch_hz      = 600        # tone
 level_db      = -12        # dBFS
+hang_ms       = 0          # The carrier after the identification (or a spoken
+                           # announcement) on a quiet channel, in ms. 0 = it drops
+                           # as soon as the Morse is out; -1 = as [tx] hang_ms.
+                           # After real traffic [tx] hang_ms applies as always.
 
 # A spoken announcement on the clock: every interval_min, except when the Morse
 # identification is due (with both at their defaults: at :15, :30 and :45).

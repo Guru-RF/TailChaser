@@ -59,7 +59,7 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->tx.rx_recover_ms = 300;
     cfg->tx.gain_db       = 0.0f;
     cfg->tx.limit_db      = 0.0f;        /* off */
-    cfg->tx.duck_db = 6.0f;
+    cfg->tx.duck_db = 12.0f;
     snprintf(cfg->announce.dir, sizeof cfg->announce.dir, "/var/lib/tailchaser/announce");
     cfg->announce.interval_min = 15;
     cfg->announce.level_db     = -16.0f;
@@ -86,6 +86,7 @@ void config_defaults(config_t *cfg, const role_t *role)
     cfg->ident.wpm          = 24;
     cfg->ident.pitch_hz     = 600;
     cfg->ident.level_db     = -12.0f;
+    cfg->ident.hang_ms      = 0;        /* drops with the Morse; -1 = [tx] hang_ms */
 
     gate_default_params(&cfg->gate);
 
@@ -692,6 +693,7 @@ static int set_key(config_t *cfg, const char *sec, const char *key, char *v)
         if (!strcmp(key, "wpm"))          INT(cfg->ident.wpm);
         if (!strcmp(key, "pitch_hz"))     INT(cfg->ident.pitch_hz);
         if (!strcmp(key, "level_db"))     FLT(cfg->ident.level_db);
+        if (!strcmp(key, "hang_ms"))      INT(cfg->ident.hang_ms);
     } else if (!strcmp(sec, "gate")) {
         gate_params_t *g = &cfg->gate;
         if (!strcmp(key, "mode")) {
@@ -1039,6 +1041,8 @@ int config_validate(const config_t *cfg, const role_t *role)
             FAIL("config: [tx] limit_db must be -30..0 (dBFS)");
 
         const ident_config_t *id = &cfg->ident;
+        if (id->hang_ms < -1 || id->hang_ms > 30000)
+            FAIL("config: [ident] hang_ms must be 0..30000 (or -1 = as [tx] hang_ms)");
         if (id->interval_min < 0 || id->interval_min > 1440)
             FAIL("config: [ident] interval_min must be 0..1440 (0 = off)");
         if (id->interval_min > 0) {

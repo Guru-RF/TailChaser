@@ -378,7 +378,10 @@ through is a voice.
 The callsign goes out in Morse on the clock (`[ident] interval_min`: 60, 15,
 whatever the licence asks). On a repeater it is
 sent over whatever is on the air; while somebody is talking it is `[tx]
-duck_db` (6 dB) quieter, and it comes back up when they stop.
+duck_db` (12 dB) quieter, and it comes back up when they stop. When the Morse
+(or an announcement) is all there is — nobody has talked — the carrier drops
+as soon as it is out: `[ident] hang_ms` (0; -1 keeps it up for `[tx] hang_ms`,
+as after an over).
 
 The node can also say something: `[announce]`, every `interval_min` (15 by
 default) and not when the Morse is due — unless `with_ident = true`, which

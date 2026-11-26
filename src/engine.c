@@ -145,6 +145,7 @@ struct engine {
     const char *tx_why;
     uint64_t    tx_since;
     int         delay_left, tail_left, tail_frames;
+    int         own_tail_frames;    /* the tail after only our own Morse / announcement */
     bool        lockout;        /* timed out: off until the over has ended */
     float       tx_gain, tx_level;
     struct tag *tag;                    /* the callsign tag; the audio thread adds it */
@@ -934,7 +935,8 @@ static void tx_tick(engine_t *e)
     }
     if (e->tx == TX_ON) {
         e->tx = TX_TAIL;
-        e->tail_left = e->tail_frames;
+        /* keyed only for our own Morse or announcement, nobody talked: [ident] hang_ms */
+        e->tail_left = e->own_tx ? e->own_tail_frames : e->tail_frames;
     }
     if (e->tail_left-- <= 0)
         unkey(e);
@@ -2208,6 +2210,10 @@ engine_t *engine_new(const config_t *cfg, const role_t *role, audio_t *audio, re
     e->duck_to = powf(10.0f, -cfg->tx.duck_db / 20.0f);
     e->recover_frames = ms_to_frames(e, cfg->tx.rx_recover_ms);
     e->tail_frames = ms_to_frames(e, audio_tx_latency_ms(audio) + cfg->tx.hang_ms);
+    /* [ident] hang_ms: the carrier after the identification (or an announcement)
+     * on a quiet channel — nobody to keep it up for. -1 = as [tx] hang_ms. */
+    e->own_tail_frames = cfg->ident.hang_ms < 0 ? e->tail_frames
+                       : ms_to_frames(e, audio_tx_latency_ms(audio) + cfg->ident.hang_ms);
     e->home_tg = e->sel_tg = e->prev_tg = cfg->link.default_tg;
     /* In Morse a callsign goes without what follows a dash: ON0ABC-S is ON0ABC
      * (the dash names the set, not the station) — as for the stations that

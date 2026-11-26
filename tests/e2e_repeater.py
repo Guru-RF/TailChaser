@@ -14,6 +14,10 @@ talkgroup over is transmitted.
 Scenario 2 — tailchaser-duplex, receiver and transmitter in one program: the
 same, plus the priority rule (a station on the input wins over the talkgroup).
 
+Scenario 3 — tailchaser-duplex as it comes (`[ident] hang_ms` not set): after
+an over the carrier stays up `[tx] hang_ms`, after the identification on a
+quiet channel it drops as soon as the Morse is out.
+
 Standard library only; the stand-ins come from tests/e2e_simplex.py. Takes
 about half a minute (the audio plays in real time).
 """
@@ -26,8 +30,8 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from e2e_simplex import (FS, Checks, Node, Recording, Reflector, Sa818, crypto_selftest,  # noqa: E402
-                         free_port, near, voice, write_wav)
+from e2e_simplex import (FS, MINUTE, Checks, Node, Recording, Reflector, Sa818,  # noqa: E402
+                         crypto_selftest, free_port, near, voice, write_wav)
 
 CALL = "ON0TST"
 KEY = "e2e-link-key"
@@ -399,6 +403,78 @@ bind = 127.0.0.1
     check(not bleep_blop(rec, t_beep, beep_len),
           f"...and no bleep blop after it: the Morse says it came over the network (last sound: {tones(rec, t_beep, beep_len)})")
 
+# --------------------------------------------------------------------------
+# scenario 3: the carrier after the identification on a quiet channel
+
+def scenario_ident_hang(exes, tmp, wavs, check):
+    exe = exes[2]
+    ref = Reflector(tmp, proto=2, auth_key="e2e-secret")
+    radio = Sa818()
+    hp = free_port()
+    conf = f"""[reflector]
+host = 127.0.0.1:{ref.port}
+callsign = {CALL}
+auth_key = e2e-secret
+default_tg = 8
+
+[radio]
+freq_rx = 431.200
+freq_tx = 438.800
+bandwidth = narrow
+ctcss_rx = 131.8
+ctcss_tx = 131.8
+
+[tx]
+delay_ms = 200
+hang_ms = 3000
+timeout_s = 60
+
+[ident]
+callsign = {CALL}
+interval_min = 1
+
+[gate]
+mode = on
+
+[audio]
+alsa_device = file:pause:1000,{wavs['loud']},pause:30000
+tx_record = {tmp}/tx.wav
+
+[status]
+http_port = {hp}
+bind = 127.0.0.1
+"""
+    # the minute strikes 20 s after the start: the over and its hang time are done by then
+    node = Node(exe, tmp, "duplex", conf, MINUTE - 20, radio)
+    try:
+        time.sleep(max(0.0, node.t0 + 25.0 - time.monotonic()))
+        st = node.status()
+        check(st["ident"]["count"] == 1, f"one identification ({st['ident']['count']})")
+    finally:
+        rc = node.stop()
+        ref.close()
+    check(rc == 0, f"clean exit on SIGTERM (exit code {rc})")
+
+    rec = Recording(f"{tmp}/tx.wav")
+    b = rec.bursts
+    for i, (s, e_) in enumerate(b):
+        check.note(f"transmission {i + 1}: {s:6.2f} s .. {e_:6.2f} s  ({e_ - s:.2f} s)")
+    if not check(len(b) == 2, f"two transmissions: the over, the identification (got {len(b)})"):
+        return
+    s, e_ = b[0]
+    t_beep, beep_len, hz = beep_of(rec, s, e_)
+    hang = e_ - (t_beep + beep_len) if t_beep else 0.0
+    check(t_beep is not None and near(hang, 3.0, 0.3),
+          f"after an over the carrier stays up [tx] hang_ms: {hang:.2f} s of 3.00 s")
+    s, e_ = b[1]
+    text = rec.morse(s, e_, 600, 24)[0]
+    g = groups(rec, s, e_)
+    after = e_ - g[-1][1] if g else e_ - s
+    check(text == CALL and after < 0.35,
+          f"the identification on a quiet channel (\"{text}\"): the carrier drops {after:.2f} s after "
+          f"the Morse ([ident] hang_ms: 0 when not set)")
+
+
 def main():
     exes = sys.argv[1:4]
     if len(exes) != 3:
@@ -415,7 +491,9 @@ def main():
 
     runs = []
     for title, fn, sub in (("a split repeater: tailchaser-receiver + tailchaser-transmitter", scenario_split, "split"),
-                           ("tailchaser-duplex: receiver and transmitter in one", scenario_duplex, "duplex")):
+                           ("tailchaser-duplex: receiver and transmitter in one", scenario_duplex, "duplex"),
+                           ("tailchaser-duplex: the carrier after the identification on a quiet channel",
+                            scenario_ident_hang, "identhang")):
         os.mkdir(f"{tmp}/{sub}")
         check = Checks(title)
 

@@ -267,6 +267,9 @@ typedef struct {
     int   wpm;
     int   pitch_hz;
     float level_db;         /* tone peak, dBFS                                      */
+    int   hang_ms;          /* carrier after our own Morse / announcement on a quiet
+                             * channel; 0 (default) = it drops right away,
+                             * -1 = the same as [tx] hang_ms                        */
 } ident_config_t;
 
 /* [dtmf] — what is not part of the gate */

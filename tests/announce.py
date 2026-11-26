@@ -221,7 +221,9 @@ def daemon(exe, tmp, check):
         radio = Sa818()
         conf = node_conf(ref, free_port(), tmp, audio, "wait" if busy == "hour" else busy)
         if busy == "hour":
-            conf = conf.replace("busy = wait", "busy = wait\nwith_ident = true").replace("tx-wait.wav", "tx-hour.wav")
+            # and the carrier after it as after an over: [ident] hang_ms = -1
+            conf = (conf.replace("busy = wait", "busy = wait\nwith_ident = true").replace("tx-wait.wav", "tx-hour.wav")
+                    .replace("interval_min = 60", "interval_min = 60\nhang_ms = -1"))
         node = Node(exe, tmp, f"duplex-{busy}", conf, hour - 5 if busy == "hour" else slot - 7.5, radio)
         try:
             time.sleep(21.5)
@@ -242,7 +244,9 @@ def daemon(exe, tmp, check):
                 check(tone_db(rec, b[0][0], b[0][1]) < -50 and near(tone_db(rec, s + 1.0, s + 7.0), -16, 1.5),
                       f"...nothing of it on their transmission, then all of it at {tone_db(rec, s + 1.0, s + 7.0):.1f} dBFS "
                       f"(wanted -16, the file was at -29)")
-                check(near(e_ - s, 0.2 + 8.0 + 1.0, 0.5), f"...{e_ - s:.1f} s keyed: TX delay, 8 s of announcement, hang")
+                check(near(e_ - s, 0.2 + 8.0, 0.5),
+                      f"...{e_ - s:.1f} s keyed: TX delay, 8 s of announcement, and no hang after it "
+                      f"([ident] hang_ms: 0 when not set)")
         elif busy == "hour":
             order = [("ident" if "ident:" in l else "announce") for l in log.splitlines()
                      if ("ident: ON0TST" in l and "every" not in l) or l in said]
@@ -253,6 +257,9 @@ def daemon(exe, tmp, check):
                 g0, g1 = rec.span(s, e_)
                 check(tone_db(rec, e_ - 3.5, e_ - 1.5) > -18 and near(rec.tone_hz(s + 0.5, s + 2.0), 600, 30),
                       f"...600 Hz Morse first, the announcement after it ({e_ - s:.1f} s keyed)")
+                check(tone_db(rec, e_ - 0.8, e_ - 0.1) < -40,
+                      f"...with [ident] hang_ms = -1 the carrier stays up [tx] hang_ms after it "
+                      f"(the last 0.7 s: {tone_db(rec, e_ - 0.8, e_ - 0.1):.0f} dBFS)")
         else:
             # the announcement runs from 5 to 13 s; the station is repeated from about 8 to 11 s
             ok = check(len(b) == 1 and len(said) == 1, f"the announcement is on the air when a station keys up: "

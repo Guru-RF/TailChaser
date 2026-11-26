@@ -109,7 +109,9 @@ implementation against.
    still.
 
 It is read where no speech covers it: in pauses and in the tail after an over
-(TailChaser repeaters hang 3..5 s). Under continuous speech it is hit and
+(a TailChaser repeater hangs 3 s as it comes; the TG 8 repeaters, 10 s). After
+an identification on a quiet channel there is no tail: the carrier drops with
+the Morse (`[ident] hang_ms = 0`). Under continuous speech it is hit and
 miss. A decoder that needs one whole frame from the sync position needs about
 3 s of quiet; treating the frame as a ring lowers that.
 
